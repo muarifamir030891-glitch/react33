@@ -632,8 +632,9 @@ export const restoreDatabase = async (data: any) => {
         if (table.payload && table.payload.length > 0) {
             console.log(`Restoring table: ${table.name} (${table.payload.length} rows)`);
             
-            // Supabase supports up to ~1000 rows per request usually, but let's chunk if very large
-            const CHUNK_SIZE = 500;
+            // Supabase supports up to ~1000 rows per request usually, but let's chunk if very large.
+            // Swimmers payload might contain massive base64 image data (payment proof), so use a small chunk size of 5 to avoid timeouts.
+            const CHUNK_SIZE = table.name === 'swimmers' ? 5 : 200;
             for (let i = 0; i < table.payload.length; i += CHUNK_SIZE) {
                 const chunk = table.payload.slice(i, i + CHUNK_SIZE);
                 let res;

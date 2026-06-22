@@ -63,34 +63,108 @@ ALTER TABLE public.swimmers ADD COLUMN IF NOT EXISTS payment_amount integer;
 ALTER TABLE public.swimmers ADD COLUMN IF NOT EXISTS pic_name text;
 ALTER TABLE public.swimmers ADD COLUMN IF NOT EXISTS pic_phone text;`;
 
+    const disableRlsQuery = `-- REKOMENDASI: Menonaktifkan RLS (Row-Level Security)
+-- Jalankan ini untuk memberikan akses penuh (Create, Read, Update, Delete) ke semua fitur secara instan
+ALTER TABLE IF EXISTS public.competition_info DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.swimmers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.events DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.event_entries DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.event_results DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.records DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.swimmer_payments DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.registration_logs DISABLE ROW LEVEL SECURITY;`;
+
+    const permissiveRlsQuery = `-- ALTERNATIF: Menyetel Kebijakan RLS Terbuka (Public CRUD)
+-- Jalankan ini jika Anda ingin RLS tetap aktif, tetapi memperbolehkan akses penuh ke siapa saja
+
+-- 1. Hapus aturan lama (agar tidak tumpang tindih)
+DROP POLICY IF EXISTS "Public read access" ON public.competition_info;
+DROP POLICY IF EXISTS "Admin full access" ON public.competition_info;
+DROP POLICY IF EXISTS "Public read access" ON public.swimmers;
+DROP POLICY IF EXISTS "Admin full access" ON public.swimmers;
+DROP POLICY IF EXISTS "Public read access" ON public.events;
+DROP POLICY IF EXISTS "Admin full access" ON public.events;
+DROP POLICY IF EXISTS "Public read access" ON public.event_entries;
+DROP POLICY IF EXISTS "Admin full access" ON public.event_entries;
+DROP POLICY IF EXISTS "Public read access" ON public.event_results;
+DROP POLICY IF EXISTS "Admin full access" ON public.event_results;
+DROP POLICY IF EXISTS "Public read access" ON public.records;
+DROP POLICY IF EXISTS "Admin full access" ON public.records;
+DROP POLICY IF EXISTS "Public read access" ON public.swimmer_payments;
+DROP POLICY IF EXISTS "Admin full access" ON public.swimmer_payments;
+DROP POLICY IF EXISTS "Public read access" ON public.registration_logs;
+DROP POLICY IF EXISTS "Admin full access" ON public.registration_logs;
+
+-- 2. Pastikan RLS diaktifkan
+ALTER TABLE public.competition_info ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.swimmers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.event_results ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.swimmer_payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.registration_logs ENABLE ROW LEVEL SECURITY;
+
+-- 3. Buat aturan akses penuh untuk semua role (public / anon / authenticated)
+CREATE POLICY "Full access to everyone" ON public.competition_info FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Full access to everyone" ON public.swimmers FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Full access to everyone" ON public.events FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Full access to everyone" ON public.event_entries FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Full access to everyone" ON public.event_results FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Full access to everyone" ON public.records FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Full access to everyone" ON public.swimmer_payments FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Full access to everyone" ON public.registration_logs FOR ALL TO public USING (true) WITH CHECK (true);`;
+
     return (
-        <div>
+        <div className="space-y-6">
             <h1 className="text-3xl font-bold mb-6">SQL Editor</h1>
 
-            <Card className="border-yellow-500/50 bg-yellow-500/5 mb-6">
+            <Card className="border-red-500/50 bg-red-500/5">
                 <div className="flex items-start space-x-4">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
                     <div>
-                        <h2 className="text-xl font-bold text-yellow-600 dark:text-yellow-400">Pembaruan Database Diperlukan</h2>
+                        <h2 className="text-xl font-bold text-red-600 dark:text-red-400">PENTING: Akses Database Supabase (Error RLS)</h2>
                         <p className="text-text-secondary mt-2">
-                            Gunakan tombol di bawah untuk membuka SQL Editor di dasbor Supabase Anda, lalu salin dan jalankan perintah migrasi di bawah untuk mengaktifkan fitur **Cek-in Atlet**.
+                            Jika Anda mengalami error seperti <strong className="text-red-500">"new row violates row-level security policy"</strong> saat menyimpan data (Create/Update/Delete) atau pendaftaran online, hal ini terjadi karena aturan Row-Level Security (RLS) di Supabase memblokir akses pengguna yang belum masuk lewat Supabase Auth.
+                        </p>
+                        <p className="text-text-secondary mt-2">
+                            Pilih salah satu solusi di bawah ini, salin kodenya, dan jalankan di **Supabase SQL Editor** untuk mengaktifkan akses penuh (Create, Read, Update, Delete) secara instan.
                         </p>
                     </div>
                 </div>
             </Card>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card className="border-green-500/30">
+                    <h3 className="text-xl font-bold text-green-600 dark:text-green-400 mb-2">Metode 1: Nonaktifkan RLS (Sangat Direkomendasikan)</h3>
+                    <p className="text-sm text-text-secondary">
+                        Ini adalah cara paling mudah dan dijamin 100% menyelesaikan masalah izin atau kebuntuan otorisasi. Ini membiarkan aplikasi web bebas melakukan operasi CRUD tanpa batasan dari server Supabase.
+                    </p>
+                    <CodeBlock>{disableRlsQuery}</CodeBlock>
+                </Card>
+
+                <Card className="border-blue-500/30">
+                    <h3 className="text-xl font-bold text-blue-600 dark:text-blue-400 mb-2">Metode 2: Kebijakan RLS Terbuka (Public CRUD)</h3>
+                    <p className="text-sm text-text-secondary">
+                        Gunakan metode ini jika Anda ingin pertahankan Row-Level Security (RLS) aktif namun memperbolehkan seluruh pengunjung (termasuk pendaftar tamu & silsilah admin cadangan) untuk membaca dan memodifikasi data.
+                    </p>
+                    <CodeBlock>{permissiveRlsQuery}</CodeBlock>
+                </Card>
+            </div>
+
             <Card>
-                <h2 className="text-2xl font-bold mb-4">Migrasi Data Cek-in, Pembayaran & Kontak</h2>
-                <p className="text-text-secondary">Salin perintah ini untuk memastikan semua tabel mendukung fitur terbaru:</p>
+                <h2 className="text-2xl font-bold mb-4">Migrasi Dasar (Cek-in, Biaya & Kontak)</h2>
+                <p className="text-text-secondary">Salin perintah ini untuk memastikan semua tabel mendukung versi kolom terbaru:</p>
                 <CodeBlock>{addCheckinFieldQuery}</CodeBlock>
-                <div className="mt-6">
-                    <Button onClick={() => window.open(supabaseSqlEditorUrl, '_blank')}>
-                        Buka Supabase SQL Editor
-                    </Button>
-                </div>
             </Card>
+
+            <div className="flex justify-center pt-4">
+                <Button size="lg" onClick={() => window.open(supabaseSqlEditorUrl, '_blank')}>
+                    Buka Supabase SQL Editor
+                </Button>
+            </div>
         </div>
     );
 };

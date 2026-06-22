@@ -1,0 +1,254 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>R.E.A.C.T</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/exceljs/dist/exceljs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+      :root {
+        --color-primary: #0ea5e9;
+        --color-primary-hover: #0284c7;
+        --color-secondary: #64748b;
+        --color-secondary-hover: #475569;
+        --color-background: #f1f5f9;
+        --color-surface: #ffffff;
+        --color-text-primary: #1e293b;
+        --color-text-secondary: #475569;
+        --color-border: #cbd5e1;
+      }
+      html.dark {
+        --color-primary: #0ea5e9;
+        --color-primary-hover: #0284c7;
+        --color-secondary: #475569;
+        --color-secondary-hover: #64748b;
+        --color-background: #1e293b;
+        --color-surface: #334155;
+        --color-text-primary: #f8fafc;
+        --color-text-secondary: #cbd5e1;
+        --color-border: #475569;
+      }
+      body {
+        background-color: var(--color-background);
+        color: var(--color-text-primary);
+      }
+      @keyframes flash {
+        0% { background-color: rgba(14, 165, 233, 0.3); } 
+        100% { background-color: transparent; }
+      }
+      .flash-animation {
+        animation: flash 1.5s ease-out;
+      }
+      
+      @keyframes pulse-indicator {
+        0% { transform: scale(1); opacity: 0.75; }
+        75%, 100% { transform: scale(2.5); opacity: 0; }
+      }
+      
+      @keyframes blob {
+        0% { transform: translate(0px, 0px) scale(1); }
+        33% { transform: translate(30px, -50px) scale(1.1); }
+        66% { transform: translate(-20px, 20px) scale(0.9); }
+        100% { transform: translate(0px, 0px) scale(1); }
+      }
+      .animate-blob { animation: blob 7s infinite; }
+      .animation-delay-2000 { animation-delay: 2s; }
+      .animation-delay-4000 { animation-delay: 4s; }
+
+      .print-preview-content {
+        background-color: white !important;
+        color: black !important;
+        padding: 1.5rem;
+        margin: 0 auto;
+        max-width: 1024px;
+        border-radius: 0.5rem;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+      }
+
+      .print-preview-content * {
+        color: black !important;
+        border-color: black !important;
+      }
+      
+      .print-preview-content th {
+        background-color: #f3f4f6 !important;
+        color: black !important;
+        font-weight: 700 !important;
+      }
+
+      .print-preview-content .bg-gray-100,
+      .print-preview-content .bg-gray-200,
+      .print-preview-content .bg-gray-50 {
+        background-color: #f3f4f6 !important;
+      }
+
+      .print-preview-content .text-primary,
+      .print-preview-content .text-blue-600,
+      .print-preview-content .text-red-600,
+      .print-preview-content .text-gray-400,
+      .print-preview-content .text-gray-500,
+      .print-preview-content .text-gray-600 {
+        color: black !important;
+      }
+      
+      .print-preview-content .font-mono {
+        color: black !important;
+        font-weight: 700;
+        font-size: 1.05em;
+      }
+
+      @media print {
+        .print-preview-content {
+          padding: 0;
+          margin: 0;
+          max-width: none;
+          box-shadow: none;
+          background: white !important;
+        }
+        .no-print { display: none !important; }
+      }
+
+      .record-badge {
+        display: inline-block;
+        padding: 0.125rem 0.5rem;
+        margin-left: 0.5rem;
+        font-size: 0.7rem;
+        font-weight: 700;
+        border-radius: 9999px;
+        line-height: 1;
+        vertical-align: middle;
+        color: white !important;
+        text-shadow: none;
+      }
+      .record-badge.porprov { background-color: #3b82f6; }
+      .record-badge.nasional { background-color: #ef4444; }
+      
+      .notification-toast {
+        animation: toast-in-right 0.5s cubic-bezier(0.215, 0.610, 0.355, 1.000);
+      }
+
+      @keyframes toast-in-right {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+
+      @media print {
+        :root {
+          --color-background: #ffffff !important;
+          --color-surface: #ffffff !important;
+          --color-text-primary: #000000 !important;
+          --color-text-secondary: #555555 !important;
+          --color-border: #cccccc !important;
+        }
+        * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+        }
+        .no-print { display: none !important; }
+        @page { size: A4; margin: 1.5cm; }
+        body {
+          background-color: #ffffff !important;
+          color: #000000 !important;
+          margin: 0; padding: 0;
+          font-family: sans-serif;
+        }
+        main { padding: 0 !important; overflow: visible !important; }
+        .print-preview-content {
+          box-shadow: none !important;
+          border: none !important;
+          border-radius: 0 !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          margin: 0 !important; padding: 0 !important;
+        }
+        .print-preview-content table { width: 100%; border-collapse: collapse; }
+        .print-preview-content th, .print-preview-content td { border: 1px solid var(--color-border) !important; padding: 6px 8px; }
+        
+        .secure-view-content { display: block !important; }
+        .secure-view-print-message { display: none !important; }
+        .secure-view::after { display: none !important; }
+        .secure-view { background-color: #ffffff !important; }
+      }
+
+      .secure-view::after {
+        content: 'RAHASIA - DILARANG MENYEBARLUASKAN';
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vw; height: 100vh;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+        gap: 50px 100px;
+        align-content: center; justify-content: center;
+        font-size: 1.5rem; font-weight: bold;
+        color: var(--color-text-primary);
+        opacity: 0.07;
+        transform: rotate(-30deg);
+        pointer-events: none;
+        z-index: 9999;
+      }
+      .no-select { user-select: none; }
+      .secure-view-print-message { display: none; }
+
+      /* QR Scanner custom UI overrides */
+      #qr-reader {
+        border: none !important;
+        background: black !important;
+        border-radius: 1rem !important;
+        overflow: hidden !important;
+      }
+      #qr-reader__dashboard_section_csr button {
+        background-color: var(--color-primary) !important;
+        color: white !important;
+        border-radius: 0.5rem !important;
+        padding: 0.5rem 1rem !important;
+        font-weight: bold !important;
+        border: none !important;
+        margin-top: 1rem !important;
+      }
+      #qr-reader__scan_region {
+        background: rgba(0,0,0,0.1) !important;
+      }
+
+    </style>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              'primary': 'var(--color-primary)',
+              'primary-hover': 'var(--color-primary-hover)',
+              'secondary': 'var(--color-secondary)',
+              'secondary-hover': 'var(--color-secondary-hover)',
+              'background': 'var(--color-background)',
+              'surface': 'var(--color-surface)',
+              'text-primary': 'var(--color-text-primary)',
+              'text-secondary': 'var(--color-text-secondary)',
+              'border': 'var(--color-border)',
+            },
+          },
+        },
+      }
+    </script>
+<script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.16.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "@supabase/supabase-js": "https://aistudiocdn.com/@supabase/supabase-js@^2.56.1"
+  }
+}
+</script>
+</head>
+  <body class="bg-background text-text-primary transition-colors duration-300">
+    <div id="root"></div>
+    <script defer src="./main.js"></script>
+  </body>
+</html>

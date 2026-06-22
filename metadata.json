@@ -1,0 +1,8 @@
+{
+  "name": "R.E.A.C.T 33",
+  "description": "Real-time Evaluation for Aquatic Competition \u0026 Timing.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "prompt": ""
+}

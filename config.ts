@@ -17,8 +17,8 @@ export const config = {
    * Found in your Supabase project's "Project Settings" > "API"
    */
   supabase: {
-    url: "https://oyymqzfxjhjktbgcbzxw.supabase.co", // 👈 VITE_SUPABASE_URL
-    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im95eW1xemZ4amhqa3RiZ2Nienh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzOTQ4MzUsImV4cCI6MjA5Mzk3MDgzNX0.CvAbF7Q5yytAUHmTE5yeQbp6sOfRMDMxUsu5cIKeKD0", // 👈 VITE_SUPABASE_ANON_KEY
+    url: "https://lkgyonbnnqeeqldbayjc.supabase.co", // 👈 VITE_SUPABASE_URL
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxrZ3lvbmJubnFlZXFsZGJheWpjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMjQwODIsImV4cCI6MjA5NzcwMDA4Mn0.MPNDQ4stPDVL3hFeFE4Zw7ssYPfZGJ9MkeSlTDpA7EM", // 👈 VITE_SUPABASE_ANON_KEY
   },
 
   /**
@@ -27,7 +27,7 @@ export const config = {
    * IMPORTANT: Use strong, unique credentials.
    */
   superAdmin: {
-    email: "akuatiksulsel@gmail.com", // 👈 Change this for the super admin login
+    email: "muarifamir030891@gmail.com", // 👈 Change this for the super admin login
     password: "12345", // 👈 Change this for the super admin login
   },
 

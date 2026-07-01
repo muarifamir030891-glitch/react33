@@ -191,3 +191,32 @@ export const generateHeats = (entries: Entry[], lanesPerHeat: number): Heat[] =>
     
     return finalHeats.map((heat, index) => ({...heat, heatNumber: index + 1}));
 };
+
+export const reconstructLockedHeats = (entries: Entry[]): Heat[] => {
+    const grouped: Record<number, LaneAssignment[]> = {};
+    
+    entries.forEach(entry => {
+        const hn = entry.heatNumber;
+        const ln = entry.laneNumber;
+        if (hn && hn > 0 && ln && ln > 0) {
+            if (!grouped[hn]) {
+                grouped[hn] = [];
+            }
+            grouped[hn].push({
+                lane: ln,
+                entry: entry
+            });
+        }
+    });
+
+    const finalHeats: Heat[] = Object.keys(grouped).map(Number).sort((a, b) => a - b).map(hn => {
+        const assignments = grouped[hn];
+        assignments.sort((a, b) => a.lane - b.lane);
+        return {
+            heatNumber: hn,
+            assignments: assignments
+        };
+    });
+
+    return finalHeats;
+};

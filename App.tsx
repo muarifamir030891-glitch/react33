@@ -343,7 +343,7 @@ const App: React.FC = () => {
     );
 
     if (currentView === View.LIVE_TIMING && selectedEventId) return <LiveTimingView eventId={selectedEventId} onBack={handleBackToEvents} onDataUpdate={refreshData} swimmers={swimmers} competitionInfo={competitionInfo} onStatusChange={handleArduinoStatusChange} />;
-    if (currentView === View.RACES && selectedEventId) return <EventDetailView eventId={selectedEventId} onBack={handleBackToEvents} onDataUpdate={refreshData} />;
+    if (currentView === View.RACES && selectedEventId) return <EventDetailView eventId={selectedEventId} onBack={handleBackToEvents} onDataUpdate={refreshData} competitionInfo={competitionInfo} />;
     
     switch (currentView) {
       case View.ADMIN_DASHBOARD: return <AdminDashboard swimmers={swimmers} events={events} competitionInfo={competitionInfo} isLoading={isLoading} navigateTo={navigateTo} />;

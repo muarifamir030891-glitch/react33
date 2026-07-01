@@ -8,6 +8,8 @@ import { Select } from './ui/Select';
 import { Spinner } from './ui/Spinner';
 import { formatEventName, toTitleCase, translateSwimStyle, AGE_GROUP_OPTIONS, formatTime } from '../constants';
 import { SwimStyle } from '../types';
+import { supabase } from '../services/supabaseClient';
+import { compressImage } from '../services/imageCompression';
 
 declare var XLSX: any;
 declare var ExcelJS: any;
@@ -159,6 +161,33 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
     const [teamParticipants, setTeamParticipants] = useState<any[]>([]);
     const [isParsingExcel, setIsParsingExcel] = useState(false);
 
+    // States for client-side WebP payment proof compression & storage uploads
+    const [individualCompressedBlob, setIndividualCompressedBlob] = useState<Blob | null>(null);
+    const [teamCompressedBlob, setTeamCompressedBlob] = useState<Blob | null>(null);
+    const [individualPreviewUrl, setIndividualPreviewUrl] = useState<string>('');
+    const [teamPreviewUrl, setTeamPreviewUrl] = useState<string>('');
+    const [isCompressing, setIsCompressing] = useState<boolean>(false);
+
+    const uploadBlobToStorage = async (blob: Blob, type: 'INDIVIDUAL' | 'TEAM'): Promise<string> => {
+        const fileExt = 'webp';
+        const folder = type === 'INDIVIDUAL' ? 'individual' : 'team';
+        const fileName = `${folder}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+        
+        const { data, error: uploadError } = await supabase.storage
+            .from('payment-proofs')
+            .upload(fileName, blob, {
+                contentType: 'image/webp',
+                cacheControl: '3600',
+                upsert: true
+            });
+            
+        if (uploadError) {
+            throw new Error(`Gagal mengunggah bukti pembayaran ke Storage: ${uploadError.message}`);
+        }
+        
+        return data.path; // Return the relative file path to save in DB
+    };
+
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
     const [successMessage, setSuccessMessage] = useState<React.ReactNode | string>('');
@@ -301,18 +330,33 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
         setTeamFormData(prev => ({ ...prev, [name]: (name === 'clubName' || name === 'picName') ? toTitleCase(value) : value }));
     };
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                if (regType === 'INDIVIDUAL') {
-                    setFormData(prev => ({ ...prev, paymentProof: reader.result as string }));
-                } else {
-                    setTeamFormData(prev => ({ ...prev, paymentProof: reader.result as string }));
-                }
-            };
-            reader.readAsDataURL(file);
+        if (!file) return;
+
+        setIsCompressing(true);
+        setError('');
+        try {
+            // Compress image client side to WebP with target size 10-30KB
+            const compressed = await compressImage(file);
+            const previewUrl = URL.createObjectURL(compressed);
+
+            if (regType === 'INDIVIDUAL') {
+                setIndividualCompressedBlob(compressed);
+                setIndividualPreviewUrl(previewUrl);
+                // Set a non-null string placeholder in the form state to satisfy validations
+                setFormData(prev => ({ ...prev, paymentProof: 'PENDING_UPLOAD' }));
+            } else {
+                setTeamCompressedBlob(compressed);
+                setTeamPreviewUrl(previewUrl);
+                // Set a non-null string placeholder in the form state to satisfy validations
+                setTeamFormData(prev => ({ ...prev, paymentProof: 'PENDING_UPLOAD' }));
+            }
+        } catch (err: any) {
+            console.error("Compression error:", err);
+            setError("Gagal mengompresi gambar: " + err.message);
+        } finally {
+            setIsCompressing(false);
         }
     };
 
@@ -560,6 +604,21 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
         setIsSubmitting(true);
 
         try {
+            let uploadedPath = null;
+            if (!competitionInfo?.isFree) {
+                if (regType === 'INDIVIDUAL') {
+                    if (!individualCompressedBlob) {
+                        throw new Error("Bukti pembayaran belum diunggah atau sedang dikompres.");
+                    }
+                    uploadedPath = await uploadBlobToStorage(individualCompressedBlob, 'INDIVIDUAL');
+                } else {
+                    if (!teamCompressedBlob) {
+                        throw new Error("Bukti pembayaran belum diunggah atau sedang dikompres.");
+                    }
+                    uploadedPath = await uploadBlobToStorage(teamCompressedBlob, 'TEAM');
+                }
+            }
+
             if (regType === 'INDIVIDUAL') {
                 const registrationsToSubmit = (Object.entries(selectedEvents) as [string, any][])
                     .filter(([_, val]) => val.selected)
@@ -574,7 +633,7 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                     gender: formData.gender,
                     club: formData.club,
                     ageGroup: formData.ageGroup,
-                    paymentProof: competitionInfo?.isFree ? null : formData.paymentProof,
+                    paymentProof: competitionInfo?.isFree ? null : uploadedPath,
                     paymentAmount: competitionInfo?.isFree ? 0 : parseInt(formData.paymentAmount) || 0,
                     picName: formData.name, // Self PIC
                     picPhone: formData.picPhone
@@ -618,7 +677,7 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                     clubName: teamFormData.clubName,
                     picName: teamFormData.picName,
                     picPhone: teamFormData.picPhone,
-                    paymentProof: competitionInfo?.isFree ? null : teamFormData.paymentProof,
+                    paymentProof: competitionInfo?.isFree ? null : uploadedPath,
                     paymentAmount: competitionInfo?.isFree ? 0 : parseInt(teamFormData.paymentAmount) || 0
                 }, teamParticipants);
 
@@ -833,6 +892,9 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                                             data={formData} 
                                             onFileChange={handleFileChange} 
                                             onAmountChange={handleFormChange} 
+                                            previewUrl={individualPreviewUrl}
+                                            compressedBlob={individualCompressedBlob}
+                                            isCompressing={isCompressing}
                                         />
                                     </Card>
                                 )}
@@ -1026,6 +1088,9 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                                             data={teamFormData} 
                                             onFileChange={handleFileChange} 
                                             onAmountChange={handleTeamFormChange} 
+                                            previewUrl={teamPreviewUrl}
+                                            compressedBlob={teamCompressedBlob}
+                                            isCompressing={isCompressing}
                                         />
                                     </Card>
                                 )}
@@ -1110,7 +1175,17 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
     );
 };
 
-const PaymentSection: React.FC<{ info: any, data: any, onFileChange: any, onAmountChange: any }> = ({ info, data, onFileChange, onAmountChange }) => {
+interface PaymentSectionProps {
+    info: any;
+    data: any;
+    onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onAmountChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+    previewUrl: string;
+    compressedBlob: Blob | null;
+    isCompressing: boolean;
+}
+
+const PaymentSection: React.FC<PaymentSectionProps> = ({ info, data, onFileChange, onAmountChange, previewUrl, compressedBlob, isCompressing }) => {
     // Component already handles free competition with a check but we also hide the Card in the main render
     if (info?.isFree) {
         return null;
@@ -1128,7 +1203,7 @@ const PaymentSection: React.FC<{ info: any, data: any, onFileChange: any, onAmou
                 </div>
             </div>
 
-            <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                     <label className="block text-sm font-bold text-text-secondary uppercase tracking-tight">Masukkan Nominal Yang Ditransfer (Rp)</label>
                     <Input 
@@ -1145,6 +1220,46 @@ const PaymentSection: React.FC<{ info: any, data: any, onFileChange: any, onAmou
                     <p className="text-xs font-bold text-yellow-600 mt-1">
                         ⚠️ Harap masukkan nominal angka saja tanpa menggunakan titik atau koma. Contoh: 75000
                     </p>
+                </div>
+
+                <div className="space-y-2">
+                    <label className="block text-sm font-bold text-text-secondary uppercase tracking-tight">Unggah Bukti Bayar (Format Gambar)</label>
+                    <div className="relative border-2 border-dashed border-border rounded-2xl p-4 flex flex-col items-center justify-center bg-surface/50 hover:bg-surface/80 transition-colors min-h-[140px]">
+                        {isCompressing ? (
+                            <div className="flex flex-col items-center gap-2 py-4">
+                                <Spinner />
+                                <span className="text-xs font-bold text-primary animate-pulse">Mengompresi gambar di browser...</span>
+                            </div>
+                        ) : previewUrl ? (
+                            <div className="w-full flex items-center gap-4">
+                                <img src={previewUrl} alt="Preview Bukti Bayar" className="h-20 w-20 object-cover rounded-xl border border-border shadow-sm bg-white" />
+                                <div className="text-left flex-grow">
+                                    <p className="text-xs font-black text-green-600 flex items-center gap-1">
+                                        <span>✓</span> Gambar Berhasil Dikompresi
+                                    </p>
+                                    {compressedBlob && (
+                                        <p className="text-[10px] text-text-secondary font-bold">
+                                            Ukuran: <span className="text-primary font-black">{(compressedBlob.size / 1024).toFixed(1)} KB</span> (Format WebP Efisien)
+                                        </p>
+                                    )}
+                                    <p className="text-[9px] text-text-secondary opacity-60 mt-1 italic leading-tight">
+                                        Menghemat kuota egress data. Gambar hanya diunduh saat admin membukanya.
+                                    </p>
+                                    <label className="inline-block mt-2 text-[10px] font-black text-primary hover:underline cursor-pointer">
+                                        Ganti Gambar
+                                        <input type="file" accept="image/*" onChange={onFileChange} className="hidden" />
+                                    </label>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center gap-1.5 py-2">
+                                <span className="text-2xl">📸</span>
+                                <p className="text-xs font-bold text-text-primary">Klik atau seret file gambar bukti bayar</p>
+                                <p className="text-[10px] text-text-secondary">Akan otomatis dikompres ke WebP (~20KB)</p>
+                                <input type="file" accept="image/*" onChange={onFileChange} className="absolute inset-0 opacity-0 cursor-pointer" required={!data.paymentProof} />
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

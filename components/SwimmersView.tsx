@@ -5,7 +5,8 @@ import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 import { Modal } from './ui/Modal';
 import { Select } from './ui/Select';
-import { updateSwimmer, deleteSwimmer, deleteAllSwimmers, unregisterSwimmerFromEvent, updateSwimmerSeedTime, registerSwimmerToEvent, addSwimmer } from '../services/databaseService';
+import { Spinner } from './ui/Spinner';
+import { updateSwimmer, deleteSwimmer, deleteAllSwimmers, unregisterSwimmerFromEvent, updateSwimmerSeedTime, registerSwimmerToEvent, addSwimmer, getPaymentProofForSwimmer } from '../services/databaseService';
 import { formatEventName, formatTime, toTitleCase, AGE_GROUP_OPTIONS } from '../constants';
 import { useNotification } from './ui/NotificationManager';
 
@@ -96,6 +97,28 @@ export const SwimmersView: React.FC<SwimmersViewProps> = ({ swimmers, events, is
     ageGroup: ''
   });
   const { addNotification } = useNotification();
+
+  // States for on-demand payment proof loading to conserve Supabase egress bandwidth
+  const [loadedPaymentProofs, setLoadedPaymentProofs] = useState<Record<string, string>>({});
+  const [loadingProofId, setLoadingProofId] = useState<string | null>(null);
+  const [showLogProofIds, setShowLogProofIds] = useState<Record<string, boolean>>({});
+
+  const handleLoadPaymentProof = async (swimmerId: string) => {
+    if (loadedPaymentProofs[swimmerId]) return;
+    setLoadingProofId(swimmerId);
+    try {
+      const url = await getPaymentProofForSwimmer(swimmerId);
+      if (url) {
+        setLoadedPaymentProofs(prev => ({ ...prev, [swimmerId]: url }));
+      } else {
+        addNotification("Tidak ditemukan bukti pembayaran untuk atlet ini.", "info");
+      }
+    } catch (err: any) {
+      addNotification(`Gagal memuat bukti pembayaran: ${err.message}`, "error");
+    } finally {
+      setLoadingProofId(null);
+    }
+  };
 
   // State for adding a new swimmer
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -656,15 +679,31 @@ export const SwimmersView: React.FC<SwimmersViewProps> = ({ swimmers, events, is
                         <p className="font-semibold">Rp {(selectedSwimmer?.paymentAmount || 0).toLocaleString()}</p>
                     </div>
                 </div>
-                {selectedSwimmer?.paymentProof && (
+                {selectedSwimmer && (
                     <div className="mt-3">
                         <p className="text-xs text-text-secondary mb-1">Bukti Transfer Terbaru:</p>
-                        <a href={selectedSwimmer.paymentProof} target="_blank" rel="noopener noreferrer" className="block w-full overflow-hidden rounded-md border border-border group relative aspect-video bg-surface">
-                            <img src={selectedSwimmer.paymentProof} alt="Payment Proof" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                <span className="text-white text-sm font-semibold">Klik untuk memperbesar</span>
-                            </div>
-                        </a>
+                        {loadedPaymentProofs[selectedSwimmer.id] ? (
+                            <a href={loadedPaymentProofs[selectedSwimmer.id]} target="_blank" rel="noopener noreferrer" className="block w-full overflow-hidden rounded-md border border-border group relative aspect-video bg-surface">
+                                <img src={loadedPaymentProofs[selectedSwimmer.id]} alt="Payment Proof" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                    <span className="text-white text-sm font-semibold">Klik untuk memperbesar</span>
+                                </div>
+                            </a>
+                        ) : (
+                            <Button 
+                                type="button" 
+                                variant="secondary" 
+                                className="w-full py-2.5 text-xs font-bold" 
+                                onClick={() => handleLoadPaymentProof(selectedSwimmer.id)}
+                                disabled={loadingProofId === selectedSwimmer.id}
+                            >
+                                {loadingProofId === selectedSwimmer.id ? (
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Spinner size="sm" /> <span>Memuat Bukti...</span>
+                                    </div>
+                                ) : "Lihat Bukti Bayar (On-Demand)"}
+                            </Button>
+                        )}
                     </div>
                 )}
             </div>
@@ -873,10 +912,21 @@ export const SwimmersView: React.FC<SwimmersViewProps> = ({ swimmers, events, is
 
                         {log.paymentProof && (
                             <div>
-                                <p className="text-xs text-text-secondary mb-1">Bukti Transfer:</p>
-                                <a href={log.paymentProof} target="_blank" rel="noopener noreferrer" className="block w-full overflow-hidden rounded border border-border aspect-video bg-surface">
-                                    <img src={log.paymentProof} alt="Payment Proof" className="w-full h-full object-cover" />
-                                </a>
+                                <p className="text-xs text-text-secondary mb-1.5">Bukti Transfer:</p>
+                                {showLogProofIds[log.id] ? (
+                                    <a href={log.paymentProof} target="_blank" rel="noopener noreferrer" className="block w-full overflow-hidden rounded border border-border aspect-video bg-surface">
+                                        <img src={log.paymentProof} alt="Payment Proof" className="w-full h-full object-cover" />
+                                    </a>
+                                ) : (
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        className="py-1 px-3 text-[11px] font-bold"
+                                        onClick={() => setShowLogProofIds(prev => ({ ...prev, [log.id]: true }))}
+                                    >
+                                        Lihat Gambar Bukti
+                                    </Button>
+                                )}
                             </div>
                         )}
                     </Card>

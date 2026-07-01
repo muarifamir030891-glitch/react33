@@ -87,6 +87,8 @@ export interface EventEntry {
     swimmerId: string;
     seedTime: number; // in milliseconds
     checked_in?: boolean; // NEW: Track check-in status
+    heatNumber?: number | null;
+    laneNumber?: number | null;
 }
 
 export interface SwimEvent {
@@ -101,6 +103,7 @@ export interface SwimEvent {
   sessionDateTime?: string;
   relayLegs?: number | null; // e.g., 4 for a 4x100 relay
   category?: string | null;
+  lanesLocked?: boolean;
 }
 
 export enum View {
@@ -137,6 +140,8 @@ export interface Entry {
     seedTime: number;
     swimmer: Swimmer;
     checked_in?: boolean;
+    heatNumber?: number | null;
+    laneNumber?: number | null;
 }
 export interface LaneAssignment {
     lane: number;

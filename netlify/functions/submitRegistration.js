@@ -38,11 +38,10 @@ export const handler = async (event) => {
         let swimmer;
         if (existingSwimmers && existingSwimmers.length > 0) {
             swimmer = existingSwimmers[0];
-            // Update swimmer info including payment and contact data
+            // Update swimmer info including payment and contact data (no payment_proof in swimmers table)
             await supabaseAdmin.from('swimmers').update({
                 club: swimmerData.club,
                 age_group: swimmerData.ageGroup,
-                payment_proof: swimmerData.paymentProof,
                 payment_amount: swimmerData.paymentAmount,
                 pic_name: swimmerData.picName,
                 pic_phone: swimmerData.picPhone
@@ -56,7 +55,6 @@ export const handler = async (event) => {
                     gender: swimmerData.gender,
                     club: swimmerData.club,
                     age_group: swimmerData.ageGroup,
-                    payment_proof: swimmerData.paymentProof,
                     payment_amount: swimmerData.paymentAmount,
                     pic_name: swimmerData.picName,
                     pic_phone: swimmerData.picPhone
@@ -65,6 +63,14 @@ export const handler = async (event) => {
                 .single();
             if (addError) throw addError;
             swimmer = newSwimmer;
+        }
+
+        // Save file path into payment_proofs table if present
+        if (swimmerData.paymentProof) {
+            await supabaseAdmin.from('payment_proofs').insert({
+                swimmer_id: swimmer.id,
+                file_path: swimmerData.paymentProof
+            });
         }
 
         const entriesToInsert = registrations.map(reg => ({
@@ -77,20 +83,20 @@ export const handler = async (event) => {
             const { error: entriesError } = await supabaseAdmin.from('event_entries').upsert(entriesToInsert);
             if (entriesError) throw entriesError;
             
-            // Record this registration session in the logs
+            // Record this registration session in the logs (stores short file path, not image data)
             await supabaseAdmin.from('registration_logs').insert({
                 swimmer_id: swimmer.id,
-                payment_proof: swimmerData.paymentProof,
+                payment_proof: swimmerData.paymentProof || null,
                 payment_amount: swimmerData.paymentAmount,
                 pic_name: swimmerData.picName,
                 pic_phone: swimmerData.picPhone,
                 event_ids: registrations.map(r => r.eventId)
             });
 
-            // Also keep a record in swimmer_payments for simpler accounting
+            // Also keep a record in swimmer_payments for simpler accounting (stores short file path)
             await supabaseAdmin.from('swimmer_payments').insert({
                 swimmer_id: swimmer.id,
-                payment_proof: swimmerData.paymentProof,
+                payment_proof: swimmerData.paymentProof || null,
                 payment_amount: swimmerData.paymentAmount
             });
         }

@@ -7,6 +7,18 @@ import { config } from '../config';
 
 // --- MAPPING FUNCTIONS ---
 
+export const getStoragePublicUrl = (filePath: string | null | undefined): string => {
+    if (!filePath) return '';
+    if (filePath.startsWith('http://') || filePath.startsWith('https://') || filePath.startsWith('data:')) {
+        return filePath;
+    }
+    const { data } = supabase.storage
+        .from('payment-proofs')
+        .getPublicUrl(filePath);
+        
+    return data?.publicUrl || '';
+};
+
 const toUser = (data: any): User => ({
     id: data.id,
     role: data.role,
@@ -40,7 +52,7 @@ const toSwimmer = (data: any): Swimmer => ({
     gender: data.gender,
     club: data.club,
     ageGroup: data.age_group,
-    paymentProof: data.payment_proof,
+    paymentProof: null, // Defer fetching of heavy payment proof image content
     paymentAmount: data.payment_amount,
     picName: data.pic_name,
     picPhone: data.pic_phone,
@@ -51,7 +63,7 @@ const toSwimmer = (data: any): Swimmer => ({
 const toSwimmerPayment = (data: any): SwimmerPayment => ({
     id: data.id,
     swimmerId: data.swimmer_id,
-    paymentProof: data.payment_proof,
+    paymentProof: getStoragePublicUrl(data.payment_proof),
     paymentAmount: data.payment_amount,
     createdAt: data.created_at
 });
@@ -61,7 +73,7 @@ const toRegistrationLog = (data: any): RegistrationLog => ({
     swimmerId: data.swimmer_id,
     swimmerName: data.swimmers?.name, // Join data
     registrationDate: data.registration_date,
-    paymentProof: data.payment_proof,
+    paymentProof: getStoragePublicUrl(data.payment_proof),
     paymentAmount: data.payment_amount,
     picName: data.pic_name,
     picPhone: data.pic_phone,
@@ -71,7 +83,9 @@ const toRegistrationLog = (data: any): RegistrationLog => ({
 const toEventEntry = (data: any): EventEntry => ({
     swimmerId: data.swimmer_id,
     seedTime: data.seed_time,
-    checked_in: data.checked_in || false
+    checked_in: data.checked_in || false,
+    heatNumber: data.heat_number ?? null,
+    laneNumber: data.lane_number ?? null
 });
 
 const toResult = (data: any): Result => ({
@@ -89,6 +103,7 @@ const toSwimEvent = (data: any): SwimEvent => ({
     sessionDateTime: data.session_date_time,
     relayLegs: data.relay_legs,
     category: data.category,
+    lanesLocked: data.lanes_locked || false,
     entries: data.event_entries?.map(toEventEntry) || [],
     results: data.event_results?.map(toResult) || []
 });
@@ -214,7 +229,6 @@ export const addSwimmer = async (swimmer: Omit<Swimmer, 'id'>): Promise<Swimmer>
         gender: swimmer.gender,
         club: swimmer.club,
         age_group: swimmer.ageGroup || null,
-        payment_proof: swimmer.paymentProof || null,
         payment_amount: swimmer.paymentAmount || 0,
         pic_name: swimmer.picName || null,
         pic_phone: swimmer.picPhone || null
@@ -230,7 +244,6 @@ export const updateSwimmer = async (id: string, swimmer: Partial<Omit<Swimmer, '
         gender: swimmer.gender,
         club: swimmer.club,
         age_group: swimmer.ageGroup || null,
-        payment_proof: swimmer.paymentProof,
         payment_amount: swimmer.paymentAmount,
         pic_name: swimmer.picName || null,
         pic_phone: swimmer.picPhone || null
@@ -323,6 +336,51 @@ export const recordEventResults = async (eventId: string, results: Result[]) => 
 };
 
 export const addOrUpdateEventResults = recordEventResults;
+
+export const lockEventLanes = async (eventId: string, assignments: { swimmerId: string, heatNumber: number, laneNumber: number }[]) => {
+    const { error: eventError } = await supabase
+        .from('events')
+        .update({ lanes_locked: true } as any)
+        .eq('id', eventId);
+    
+    if (eventError) throw eventError;
+
+    // We execute these updates one by one to ensure they are handled properly
+    for (const a of assignments) {
+        const { error: entryError } = await supabase
+            .from('event_entries')
+            .update({ heat_number: a.heatNumber, lane_number: a.laneNumber } as any)
+            .eq('event_id', eventId)
+            .eq('swimmer_id', a.swimmerId);
+        if (entryError) throw entryError;
+    }
+};
+
+export const unlockEventLanes = async (eventId: string) => {
+    const { error: eventError } = await supabase
+        .from('events')
+        .update({ lanes_locked: false } as any)
+        .eq('id', eventId);
+    
+    if (eventError) throw eventError;
+
+    const { error: entryError } = await supabase
+        .from('event_entries')
+        .update({ heat_number: null, lane_number: null } as any)
+        .eq('event_id', eventId);
+        
+    if (entryError) throw entryError;
+};
+
+export const assignSwimmerLane = async (eventId: string, swimmerId: string, heatNumber: number | null, laneNumber: number | null) => {
+    const { error } = await supabase
+        .from('event_entries')
+        .update({ heat_number: heatNumber, lane_number: laneNumber } as any)
+        .eq('event_id', eventId)
+        .eq('swimmer_id', swimmerId);
+        
+    if (error) throw error;
+};
 
 export const getEventsForRegistration = async (): Promise<SwimEvent[]> => {
     const { data, error } = await supabase.from('events').select('*');
@@ -722,5 +780,63 @@ export const getAllRegistrationLogs = async (): Promise<RegistrationLog[]> => {
     
     if (error) throw error;
     return data.map(toRegistrationLog);
+};
+
+export const getPaymentProofForSwimmer = async (swimmerId: string): Promise<string | null> => {
+    const { data, error } = await supabase
+        .from('payment_proofs')
+        .select('file_path')
+        .eq('swimmer_id', swimmerId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+        
+    if (error || !data || !data.file_path) return null;
+    return getStoragePublicUrl(data.file_path);
+};
+
+export const getPaymentProofsBySwimmerId = async (swimmerId: string): Promise<{ id: string, filePath: string, publicUrl: string, createdAt: string }[]> => {
+    const { data, error } = await supabase
+        .from('payment_proofs')
+        .select('*')
+        .eq('swimmer_id', swimmerId)
+        .order('created_at', { ascending: false });
+        
+    if (error || !data) return [];
+    
+    return data.map(proof => ({
+        id: proof.id,
+        filePath: proof.file_path,
+        publicUrl: getStoragePublicUrl(proof.file_path),
+        createdAt: proof.created_at
+    }));
+};
+
+export const uploadPaymentProof = async (swimmerId: string, compressedBlob: Blob): Promise<{ success: boolean; filePath: string }> => {
+    const fileExt = 'webp';
+    const fileName = `${swimmerId}/${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+    
+    const { data, error: uploadError } = await supabase.storage
+        .from('payment-proofs')
+        .upload(fileName, compressedBlob, {
+            contentType: 'image/webp',
+            cacheControl: '3600',
+            upsert: true
+        });
+        
+    if (uploadError) throw uploadError;
+    
+    const filePath = data.path;
+    
+    const { error: dbError } = await supabase
+        .from('payment_proofs')
+        .insert({
+            swimmer_id: swimmerId,
+            file_path: filePath
+        });
+        
+    if (dbError) throw dbError;
+    
+    return { success: true, filePath };
 };
 

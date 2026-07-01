@@ -61,7 +61,41 @@ ALTER TABLE public.competition_info ADD COLUMN IF NOT EXISTS fee_per_event integ
 ALTER TABLE public.swimmers ADD COLUMN IF NOT EXISTS payment_proof text;
 ALTER TABLE public.swimmers ADD COLUMN IF NOT EXISTS payment_amount integer;
 ALTER TABLE public.swimmers ADD COLUMN IF NOT EXISTS pic_name text;
-ALTER TABLE public.swimmers ADD COLUMN IF NOT EXISTS pic_phone text;`;
+ALTER TABLE public.swimmers ADD COLUMN IF NOT EXISTS pic_phone text;
+
+-- Menambahkan kolom untuk mengunci lintasan peserta
+ALTER TABLE public.events ADD COLUMN IF NOT EXISTS lanes_locked BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.event_entries ADD COLUMN IF NOT EXISTS heat_number INTEGER;
+ALTER TABLE public.event_entries ADD COLUMN IF NOT EXISTS lane_number INTEGER;
+
+-- TABEL BUKTI BAYAR BARU (TIDAK MENYIMPAN GAMBAR LANGSUNG DI DATABASE)
+CREATE TABLE IF NOT EXISTS public.payment_proofs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    swimmer_id uuid NOT NULL REFERENCES public.swimmers(id) ON DELETE CASCADE,
+    file_path text NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+-- AKTIFKAN RLS UNTUK TABLE payment_proofs
+ALTER TABLE public.payment_proofs ENABLE ROW LEVEL SECURITY;
+
+-- SETUP BUCKET UNTUK STORAGE SUPABASE (payment-proofs)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('payment-proofs', 'payment-proofs', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- STORAGE POLICIES UNTUK BUCKET payment-proofs
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Select payment-proofs' AND tablename = 'objects' AND schemaname = 'storage') THEN
+        CREATE POLICY "Public Select payment-proofs" ON storage.objects FOR SELECT TO public USING (bucket_id = 'payment-proofs');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Insert payment-proofs' AND tablename = 'objects' AND schemaname = 'storage') THEN
+        CREATE POLICY "Public Insert payment-proofs" ON storage.objects FOR INSERT TO public WITH CHECK (bucket_id = 'payment-proofs');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete payment-proofs' AND tablename = 'objects' AND schemaname = 'storage') THEN
+        CREATE POLICY "Public Delete payment-proofs" ON storage.objects FOR DELETE TO public USING (bucket_id = 'payment-proofs');
+    END IF;
+END $$;`;
 
     const disableRlsQuery = `-- REKOMENDASI: Menonaktifkan RLS (Row-Level Security)
 -- Jalankan ini untuk memberikan akses penuh (Create, Read, Update, Delete) ke semua fitur secara instan
@@ -72,10 +106,11 @@ ALTER TABLE IF EXISTS public.event_entries DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.event_results DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.records DISABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.swimmer_payments DISABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.registration_logs DISABLE ROW LEVEL SECURITY;`;
+ALTER TABLE IF EXISTS public.registration_logs DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.payment_proofs DISABLE ROW LEVEL SECURITY;`;
 
     const permissiveRlsQuery = `-- ALTERNATIF: Menyetel Kebijakan RLS Terbuka (Public CRUD)
--- Jalankan ini jika Anda ingin RLS tetap aktif, tetapi memperbolehkan akses penuh ke siapa saja
+-- Jalankan ini jika Anda ingin RLS tetap aktif, tetapi memperbolehkan akses penuh ke siapa sajaCustom
 
 -- 1. Hapus aturan lama (agar tidak tumpang tindih)
 DROP POLICY IF EXISTS "Public read access" ON public.competition_info;
@@ -94,6 +129,9 @@ DROP POLICY IF EXISTS "Public read access" ON public.swimmer_payments;
 DROP POLICY IF EXISTS "Admin full access" ON public.swimmer_payments;
 DROP POLICY IF EXISTS "Public read access" ON public.registration_logs;
 DROP POLICY IF EXISTS "Admin full access" ON public.registration_logs;
+DROP POLICY IF EXISTS "Public read access" ON public.payment_proofs;
+DROP POLICY IF EXISTS "Admin full access" ON public.payment_proofs;
+DROP POLICY IF EXISTS "Full access to everyone" ON public.payment_proofs;
 
 -- 2. Pastikan RLS diaktifkan
 ALTER TABLE public.competition_info ENABLE ROW LEVEL SECURITY;
@@ -104,6 +142,7 @@ ALTER TABLE public.event_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.swimmer_payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.registration_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payment_proofs ENABLE ROW LEVEL SECURITY;
 
 -- 3. Buat aturan akses penuh untuk semua role (public / anon / authenticated)
 CREATE POLICY "Full access to everyone" ON public.competition_info FOR ALL TO public USING (true) WITH CHECK (true);
@@ -113,7 +152,8 @@ CREATE POLICY "Full access to everyone" ON public.event_entries FOR ALL TO publi
 CREATE POLICY "Full access to everyone" ON public.event_results FOR ALL TO public USING (true) WITH CHECK (true);
 CREATE POLICY "Full access to everyone" ON public.records FOR ALL TO public USING (true) WITH CHECK (true);
 CREATE POLICY "Full access to everyone" ON public.swimmer_payments FOR ALL TO public USING (true) WITH CHECK (true);
-CREATE POLICY "Full access to everyone" ON public.registration_logs FOR ALL TO public USING (true) WITH CHECK (true);`;
+CREATE POLICY "Full access to everyone" ON public.registration_logs FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "Full access to everyone" ON public.payment_proofs FOR ALL TO public USING (true) WITH CHECK (true);`;
 
     return (
         <div className="space-y-6">

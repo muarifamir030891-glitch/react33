@@ -229,3 +229,45 @@ VALUES (1, 'R.E.A.C.T Championship', CURRENT_DATE, 8, true)
 ON CONFLICT (id) DO UPDATE 
 SET event_name = EXCLUDED.event_name,
     is_free = COALESCE(competition_info.is_free, EXCLUDED.is_free);
+
+-- 14. Table for Payment Proof File Paths (Supabase Storage)
+CREATE TABLE IF NOT EXISTS public.payment_proofs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    swimmer_id uuid NOT NULL REFERENCES public.swimmers(id) ON DELETE CASCADE,
+    file_path text NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+-- Enable RLS for payment_proofs
+ALTER TABLE public.payment_proofs ENABLE ROW LEVEL SECURITY;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public read access' AND tablename = 'payment_proofs') THEN
+        CREATE POLICY "Public read access" ON public.payment_proofs FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Admin full access' AND tablename = 'payment_proofs') THEN
+        CREATE POLICY "Admin full access" ON public.payment_proofs FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Full access to everyone' AND tablename = 'payment_proofs') THEN
+        CREATE POLICY "Full access to everyone" ON public.payment_proofs FOR ALL TO public USING (true) WITH CHECK (true);
+    END IF;
+END $$;
+
+-- Setup storage bucket for 'payment-proofs' (making it public so urls work)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('payment-proofs', 'payment-proofs', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage policies for bucket 'payment-proofs'
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Select payment-proofs' AND tablename = 'objects' AND schemaname = 'storage') THEN
+        CREATE POLICY "Public Select payment-proofs" ON storage.objects FOR SELECT TO public USING (bucket_id = 'payment-proofs');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Insert payment-proofs' AND tablename = 'objects' AND schemaname = 'storage') THEN
+        CREATE POLICY "Public Insert payment-proofs" ON storage.objects FOR INSERT TO public WITH CHECK (bucket_id = 'payment-proofs');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Public Delete payment-proofs' AND tablename = 'objects' AND schemaname = 'storage') THEN
+        CREATE POLICY "Public Delete payment-proofs" ON storage.objects FOR DELETE TO public USING (bucket_id = 'payment-proofs');
+    END IF;
+END $$;
+

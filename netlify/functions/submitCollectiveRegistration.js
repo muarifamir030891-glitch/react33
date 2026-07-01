@@ -50,7 +50,6 @@ export const handler = async (event) => {
                     gender: p.gender === 'L' ? 'Male' : 'Female',
                     club: teamData.clubName,
                     age_group: p.ageGroup || null,
-                    payment_proof: teamData.paymentProof,
                     payment_amount: swimmerEvents * feePerEvent,
                     pic_name: teamData.picName,
                     pic_phone: teamData.picPhone
@@ -73,10 +72,9 @@ export const handler = async (event) => {
             let swimmerId;
             if (existing && existing.length > 0) {
                 swimmerId = existing[0].id;
-                // Update info with PIC contact and payment data
+                // Update info with PIC contact and payment data (no payment_proof in swimmers)
                 await supabaseAdmin.from('swimmers').update({
                     club: teamData.clubName,
-                    payment_proof: teamData.paymentProof,
                     payment_amount: swimmerData.payment_amount,
                     pic_name: teamData.picName,
                     pic_phone: teamData.picPhone
@@ -84,13 +82,30 @@ export const handler = async (event) => {
             } else {
                 const { data: created, error: createError } = await supabaseAdmin
                     .from('swimmers')
-                    .insert(swimmerData)
+                    .insert({
+                        name: swimmerData.name,
+                        birth_year: swimmerData.birthYear,
+                        gender: swimmerData.gender,
+                        club: swimmerData.club,
+                        age_group: swimmerData.age_group,
+                        payment_amount: swimmerData.payment_amount,
+                        pic_name: swimmerData.pic_name,
+                        pic_phone: swimmerData.pic_phone
+                    })
                     .select('id')
                     .single();
                 if (createError) throw createError;
                 swimmerId = created.id;
             }
             uniqueSwimmersMap.get(key).realId = swimmerId;
+
+            // Save file path to payment_proofs table if present
+            if (teamData.paymentProof) {
+                await supabaseAdmin.from('payment_proofs').insert({
+                    swimmer_id: swimmerId,
+                    file_path: teamData.paymentProof
+                });
+            }
         }
 
         // 2. Process all event entries

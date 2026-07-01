@@ -5,7 +5,7 @@ import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Spinner } from './ui/Spinner';
 import { Input } from './ui/Input';
-import { formatEventName, generateHeats, formatTime, parseMsToTimeParts } from '../constants';
+import { formatEventName, generateHeats, reconstructLockedHeats, formatTime, parseMsToTimeParts } from '../constants';
 import { useNotification } from './ui/NotificationManager';
 
 type ArduinoStatus = 'connected' | 'disconnected' | 'error' | 'unavailable';
@@ -77,7 +77,9 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 .filter(e => e.swimmer);
             
             const lanes = competitionInfo?.numberOfLanes || 8;
-            const generated = generateHeats(detailedEntries, lanes);
+            const generated = eventData.lanesLocked
+                ? reconstructLockedHeats(detailedEntries)
+                : generateHeats(detailedEntries, lanes);
             setHeats(generated);
 
             const initialTimes: Record<string, { min: string, sec: string, ms: string }> = {};

@@ -6,7 +6,7 @@ import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Spinner } from './ui/Spinner';
 import { Input } from './ui/Input';
-import { formatEventName, generateHeats, translateGender, translateSwimStyle, romanize } from '../constants';
+import { formatEventName, generateHeats, reconstructLockedHeats, translateGender, translateSwimStyle, romanize } from '../constants';
 import { getRecords } from '../services/databaseService';
 import { useNotification } from './ui/NotificationManager';
 
@@ -555,7 +555,9 @@ export const PrintView: React.FC<PrintViewProps> = ({ events, swimmers, competit
 
         const detailedEvents = renderEvents.map(event => {
             const entries: Entry[] = event.entries.map(en => ({ ...en, swimmer: swimmersMap.get(en.swimmerId)! })).filter(e => e.swimmer);
-            const heats = generateHeats(entries, competitionInfo?.numberOfLanes || 8);
+            const heats = event.lanesLocked
+                ? reconstructLockedHeats(entries)
+                : generateHeats(entries, competitionInfo?.numberOfLanes || 8);
             
             const validRes = [...event.results].filter(r => r.time > 0).sort((a, b) => a.time - b.time);
             const detailedRes = [...event.results].sort((a, b) => {

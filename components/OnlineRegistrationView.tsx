@@ -129,9 +129,8 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
     competitionInfo,
     events,
     onBackToLogin,
-    onRegistrationSuccess,
-}) => {
-    const [regType, setRegType] = useState<'CHOICE' | 'INDIVIDUAL' | 'TEAM'>('CHOICE');
+    }) => {
+    const [regType, setRegType] = useState<'CHOICE' | 'INDIVIDUAL' | 'TEAM' | 'CHECK_STATUS' | 'EVENTS_LIST'>('CHOICE');
     const [localEvents, setLocalEvents] = useState<SwimEvent[]>(events || []);
     const [isDataLoading, setIsDataLoading] = useState(!events || events.length === 0);
     
@@ -167,6 +166,115 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
     const [individualPreviewUrl, setIndividualPreviewUrl] = useState<string>('');
     const [teamPreviewUrl, setTeamPreviewUrl] = useState<string>('');
     const [isCompressing, setIsCompressing] = useState<boolean>(false);
+
+    // New States for Registration Dashboard & Receipt Verification
+    const [stats, setStats] = useState({
+        totalSwimmers: 0,
+        totalClubs: 0,
+        totalEntries: 0
+    });
+    const [statusSearchQuery, setStatusSearchQuery] = useState('');
+    const [statusSearchResults, setStatusSearchResults] = useState<any[]>([]);
+    const [isSearchingStatus, setIsSearchingStatus] = useState(false);
+    const [hasSearched, setHasSearched] = useState(false);
+
+    const [isIndividualConfirmed, setIsIndividualConfirmed] = useState(false);
+    const [isTeamConfirmed, setIsTeamConfirmed] = useState(false);
+    const [showZoomModal, setShowZoomModal] = useState(false);
+    const [zoomScale, setZoomScale] = useState(1);
+    
+    const [tempIndividualCheck1, setTempIndividualCheck1] = useState(false);
+    const [tempIndividualCheck2, setTempIndividualCheck2] = useState(false);
+    const [tempTeamCheck1, setTempTeamCheck1] = useState(false);
+    const [tempTeamCheck2, setTempTeamCheck2] = useState(false);
+
+    // Number Speller in Indonesian (Terbilang)
+    const terbilang = (nilai: number): string => {
+        const bilangan = [
+            "", "Satu", "Dua", "Tiga", "Empat", "Lima", 
+            "Enam", "Tujuh", "Delapan", "Sembilan", "Sepuluh", "Sebelas"
+        ];
+        let temp = "";
+        if (nilai < 12) {
+            temp = " " + bilangan[nilai];
+        } else if (nilai < 20) {
+            temp = terbilang(nilai - 10) + " Belas";
+        } else if (nilai < 100) {
+            temp = terbilang(Math.floor(nilai / 10)) + " Puluh" + terbilang(nilai % 10);
+        } else if (nilai < 200) {
+            temp = " Seratus" + terbilang(nilai - 100);
+        } else if (nilai < 1000) {
+            temp = terbilang(Math.floor(nilai / 100)) + " Ratus" + terbilang(nilai % 100);
+        } else if (nilai < 2000) {
+            temp = " Seribu" + terbilang(nilai - 1000);
+        } else if (nilai < 1000000) {
+            temp = terbilang(Math.floor(nilai / 1000)) + " Ribu" + terbilang(nilai % 1000);
+        } else if (nilai < 1000000000) {
+            temp = terbilang(Math.floor(nilai / 1000000)) + " Juta" + terbilang(nilai % 1000000);
+        }
+        return temp.trim();
+    };
+
+    // Load Live Public Stats for Dashboard
+    useEffect(() => {
+        const fetchDashboardStats = async () => {
+            try {
+                const [swimmerRes, entriesRes, clubsRes] = await Promise.all([
+                    supabase.from('swimmers').select('id', { count: 'exact', head: true }),
+                    supabase.from('event_entries').select('swimmer_id', { count: 'exact', head: true }),
+                    supabase.from('swimmers').select('club')
+                ]);
+                
+                let uniqueClubs = 0;
+                if (clubsRes.data) {
+                    const clubsSet = new Set(clubsRes.data.map(s => s.club?.trim().toLowerCase()).filter(Boolean));
+                    uniqueClubs = clubsSet.size;
+                }
+                
+                setStats({
+                    totalSwimmers: swimmerRes.count || 0,
+                    totalEntries: entriesRes.count || 0,
+                    totalClubs: uniqueClubs
+                });
+            } catch (err) {
+                console.error("Gagal memuat stats registrasi:", err);
+            }
+        };
+        fetchDashboardStats();
+    }, [regType]);
+
+    const handleSearchStatus = async (query: string) => {
+        if (!query.trim()) return;
+        setIsSearchingStatus(true);
+        setHasSearched(true);
+        try {
+            const { data, error: swimmerErr } = await supabase
+                .from('swimmers')
+                .select(`
+                    id,
+                    name,
+                    birth_year,
+                    gender,
+                    club,
+                    age_group,
+                    payment_amount,
+                    pic_name,
+                    pic_phone,
+                    event_entries(event_id, seed_time)
+                `)
+                .or(`name.ilike.%${query}%,club.ilike.%${query}%`)
+                .order('name', { ascending: true })
+                .limit(20);
+                
+            if (swimmerErr) throw swimmerErr;
+            setStatusSearchResults(data || []);
+            setRegType('CHECK_STATUS');
+        } catch (err) {
+            console.error("Gagal melakukan pencarian status pendaftaran:", err);
+        } finally {
+            setIsSearchingStatus(false);
+        }
+    };
 
     const uploadBlobToStorage = async (blob: Blob, type: 'INDIVIDUAL' | 'TEAM'): Promise<string> => {
         const fileExt = 'webp';
@@ -258,6 +366,9 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                 const amount = parseInt(formData.paymentAmount) || 0;
                 const feePerNo = competitionInfo?.feePerEvent || 0;
                 if (amount < feePerNo) errors.push("Nominal bayar belum mencukupi untuk minimal 1 nomor");
+                if (formData.paymentProof && !isIndividualConfirmed) {
+                    errors.push("Pemeriksaan & Konfirmasi Bukti Bayar wajib diselesaikan.");
+                }
             }
             
             if (selectedEventCount === 0) {
@@ -265,7 +376,7 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
             } else if (!competitionInfo?.isFree && selectedEventCount > maxAllowedEvents) {
                 errors.push("Jumlah nomor lomba melebihi kuota pembayaran");
             }
-        } else {
+        } else if (regType === 'TEAM') {
             if (!teamFormData.clubName.trim()) errors.push("Nama Tim/Klub belum diisi");
             if (!teamFormData.picName.trim()) errors.push("Nama PIC belum diisi");
             if (!teamFormData.picPhone.trim()) errors.push("Nomor HP/WA PIC belum diisi");
@@ -273,6 +384,9 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
             if (!competitionInfo?.isFree) {
                 const amount = parseInt(teamFormData.paymentAmount) || 0;
                 if (amount <= 0) errors.push("Nominal bayar belum diisi");
+                if (teamFormData.paymentProof && !isTeamConfirmed) {
+                    errors.push("Pemeriksaan & Konfirmasi Bukti Bayar wajib diselesaikan.");
+                }
             }
             
             if (teamParticipants.length === 0) {
@@ -280,7 +394,7 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
             }
         }
         return errors;
-    }, [formData, teamFormData, regType, selectedEventCount, maxAllowedEvents, isPaymentStepValid, teamParticipants, competitionInfo]);
+    }, [formData, teamFormData, regType, selectedEventCount, maxAllowedEvents, isPaymentStepValid, teamParticipants, competitionInfo, isIndividualConfirmed, isTeamConfirmed]);
 
     const isFormValid = validationErrors.length === 0;
 
@@ -295,6 +409,12 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
         if (name === 'name') {
             setExistingSwimmerId(null); // Reset when name changes
             setRegisteredEventIds([]); // Reset existing registrations
+        }
+
+        if (name === 'paymentAmount') {
+            setIsIndividualConfirmed(false);
+            setTempIndividualCheck1(false);
+            setTempIndividualCheck2(false);
         }
 
         setFormData(prev => ({ ...prev, [name]: (name === 'name' || name === 'club') ? toTitleCase(value) : value }));
@@ -327,6 +447,11 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
 
     const handleTeamFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
+        if (name === 'paymentAmount') {
+            setIsTeamConfirmed(false);
+            setTempTeamCheck1(false);
+            setTempTeamCheck2(false);
+        }
         setTeamFormData(prev => ({ ...prev, [name]: (name === 'clubName' || name === 'picName') ? toTitleCase(value) : value }));
     };
 
@@ -344,11 +469,17 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
             if (regType === 'INDIVIDUAL') {
                 setIndividualCompressedBlob(compressed);
                 setIndividualPreviewUrl(previewUrl);
+                setIsIndividualConfirmed(false);
+                setTempIndividualCheck1(false);
+                setTempIndividualCheck2(false);
                 // Set a non-null string placeholder in the form state to satisfy validations
                 setFormData(prev => ({ ...prev, paymentProof: 'PENDING_UPLOAD' }));
             } else {
                 setTeamCompressedBlob(compressed);
                 setTeamPreviewUrl(previewUrl);
+                setIsTeamConfirmed(false);
+                setTempTeamCheck1(false);
+                setTempTeamCheck2(false);
                 // Set a non-null string placeholder in the form state to satisfy validations
                 setTeamFormData(prev => ({ ...prev, paymentProof: 'PENDING_UPLOAD' }));
             }
@@ -838,19 +969,302 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                 </header>
 
                 {regType === 'CHOICE' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
-                        <Card className="cursor-pointer hover:border-primary p-8 text-center transition-all hover:scale-105 group shadow-xl" onClick={() => setRegType('INDIVIDUAL')}>
-                            <UserIcon /><h3 className="text-2xl font-black mt-4 group-hover:text-primary transition-colors">PENDAFTARAN MANDIRI</h3>
-                            <p className="text-text-secondary mt-2 text-sm italic">Daftarkan atlet satu per satu secara langsung</p>
+                    <div className="space-y-8 mt-6">
+                        {/* STATS ROW (DASHBOARD) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-6 rounded-3xl border border-white/50 dark:border-white/10 shadow-sm flex items-center gap-4">
+                                <div className="p-3 bg-sky-500/10 rounded-2xl text-2xl">🏊</div>
+                                <div>
+                                    <p className="text-[10px] font-black text-text-secondary uppercase tracking-widest leading-none">Total Atlet</p>
+                                    <p className="text-2xl font-black text-primary mt-1">{stats.totalSwimmers} <span className="text-xs font-semibold text-text-secondary">Orang</span></p>
+                                </div>
+                            </div>
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-6 rounded-3xl border border-white/50 dark:border-white/10 shadow-sm flex items-center gap-4">
+                                <div className="p-3 bg-emerald-500/10 rounded-2xl text-2xl">🛡️</div>
+                                <div>
+                                    <p className="text-[10px] font-black text-text-secondary uppercase tracking-widest leading-none">Total Klub / Tim</p>
+                                    <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{stats.totalClubs} <span className="text-xs font-semibold text-text-secondary">Klub</span></p>
+                                </div>
+                            </div>
+                            <div className="bg-white/60 dark:bg-slate-800/60 backdrop-blur-md p-6 rounded-3xl border border-white/50 dark:border-white/10 shadow-sm flex items-center gap-4">
+                                <div className="p-3 bg-indigo-500/10 rounded-2xl text-2xl">📝</div>
+                                <div>
+                                    <p className="text-[10px] font-black text-text-secondary uppercase tracking-widest leading-none">Nomor Diikuti</p>
+                                    <p className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">{stats.totalEntries} <span className="text-xs font-semibold text-text-secondary">Entries</span></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* CEPAT LOOKUP / SEARCH BOX */}
+                        <Card className="p-6 md:p-8 shadow-xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-primary/20 rounded-3xl">
+                            <h3 className="text-lg font-black text-primary uppercase tracking-tight flex items-center gap-2 mb-3">
+                                <span>🔍</span> Cek Status & Riwayat Registrasi Atlet / Klub
+                            </h3>
+                            <p className="text-xs text-text-secondary font-semibold mb-4 leading-relaxed">
+                                Masukkan nama atlet atau nama klub Anda pada kotak pencarian di bawah ini untuk melihat daftar nomor lomba yang telah terdaftar serta status verifikasi pembayaran secara real-time.
+                            </p>
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <div className="flex-1 relative">
+                                    <input 
+                                        type="text" 
+                                        placeholder="Ketik nama atlet atau klub (Contoh: Sidoarjo Swim Club)..." 
+                                        value={statusSearchQuery} 
+                                        onChange={(e) => setStatusSearchQuery(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSearchStatus(statusSearchQuery);
+                                        }}
+                                        className="w-full pl-5 pr-12 py-4 bg-background border border-border rounded-2xl font-semibold shadow-inner text-text-primary focus:ring-2 focus:ring-primary focus:border-primary"
+                                    />
+                                    {statusSearchQuery && (
+                                        <button 
+                                            onClick={() => setStatusSearchQuery('')}
+                                            className="absolute right-4 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary font-bold text-sm bg-surface w-6 h-6 rounded-full flex items-center justify-center border border-border"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+                                <Button 
+                                    onClick={() => handleSearchStatus(statusSearchQuery)}
+                                    disabled={isSearchingStatus || !statusSearchQuery.trim()}
+                                    className="py-4 px-8 rounded-2xl font-black flex items-center justify-center gap-2 text-sm shrink-0 shadow-lg"
+                                >
+                                    {isSearchingStatus ? <Spinner /> : <span>Cari Atlet</span>}
+                                </Button>
+                            </div>
                         </Card>
-                        <Card className="cursor-pointer hover:border-primary p-8 text-center transition-all hover:scale-105 group shadow-xl" onClick={() => setRegType('TEAM')}>
-                            <UserGroupIcon /><h3 className="text-2xl font-black mt-4 group-hover:text-primary transition-colors">PENDAFTARAN KOLEKTIF</h3>
-                            <p className="text-text-secondary mt-2 text-sm italic">Gunakan Excel untuk mendaftarkan tim besar / klub</p>
+
+                        {/* UTAMA CARD LAYOUT */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <Card className="cursor-pointer hover:border-primary p-8 text-center transition-all hover:scale-[1.02] active:scale-[0.99] group shadow-xl bg-white/90 dark:bg-slate-800/90 rounded-[2rem] flex flex-col justify-between" onClick={() => setRegType('INDIVIDUAL')}>
+                                <div className="space-y-4">
+                                    <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center mx-auto text-3xl group-hover:scale-110 transition-transform">👤</div>
+                                    <h3 className="text-xl font-black group-hover:text-primary transition-colors uppercase tracking-tight">PENDAFTARAN ATLET MANDIRI</h3>
+                                    <p className="text-text-secondary text-xs font-semibold leading-relaxed">
+                                        Gunakan menu ini jika Anda ingin mendaftarkan atlet satu per satu secara langsung dengan memilih nomor lomba secara manual di browser.
+                                    </p>
+                                </div>
+                                <div className="mt-6">
+                                    <span className="inline-block bg-primary/10 text-primary px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider group-hover:bg-primary group-hover:text-white transition-colors">Daftar Sekarang &rarr;</span>
+                                </div>
+                            </Card>
+
+                            <Card className="cursor-pointer hover:border-primary p-8 text-center transition-all hover:scale-[1.02] active:scale-[0.99] group shadow-xl bg-white/90 dark:bg-slate-800/90 rounded-[2rem] flex flex-col justify-between" onClick={() => setRegType('TEAM')}>
+                                <div className="space-y-4">
+                                    <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 flex items-center justify-center mx-auto text-3xl group-hover:scale-110 transition-transform">👥</div>
+                                    <h3 className="text-xl font-black group-hover:text-emerald-500 transition-colors uppercase tracking-tight">PENDAFTARAN KOLEKTIF (EXCEL)</h3>
+                                    <p className="text-text-secondary text-xs font-semibold leading-relaxed">
+                                        Gunakan menu ini untuk mendaftarkan atlet dalam jumlah besar (Klub atau Tim) menggunakan unggahan file Excel. Template pengisian otomatis disediakan.
+                                    </p>
+                                </div>
+                                <div className="mt-6">
+                                    <span className="inline-block bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider group-hover:bg-emerald-500 group-hover:text-white transition-colors">Daftar Kolektif &rarr;</span>
+                                </div>
+                            </Card>
+                        </div>
+
+                        {/* ACARA & KATEGORI WIDGET */}
+                        <div className="bg-white/40 dark:bg-slate-800/40 backdrop-blur-md p-6 rounded-[2rem] border border-white/40 dark:border-white/5 shadow-sm text-center">
+                            <p className="text-xs text-text-secondary font-bold uppercase tracking-widest">Informasi Lomba & Acara Tersedia</p>
+                            <p className="text-text-secondary text-xs font-medium mt-1">Ingin melihat daftar jarak dan nomor perlombaan yang dibuka?</p>
+                            <button 
+                                onClick={() => setRegType('EVENTS_LIST')}
+                                className="mt-3 inline-flex items-center gap-1.5 text-xs font-black text-primary hover:underline hover:scale-105 transition-all"
+                            >
+                                <span>🏊 Explore Daftar Nomor Perlombaan</span> &rarr;
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {regType === 'CHECK_STATUS' && (
+                    <div className="space-y-6 mt-6 pb-20">
+                        <div className="flex justify-between items-center">
+                            <Button variant="secondary" onClick={() => { setRegType('CHOICE'); setStatusSearchResults([]); setStatusSearchQuery(''); setHasSearched(false); }}>
+                                &larr; Kembali ke Dashboard
+                            </Button>
+                            <span className="text-xs font-black text-text-secondary uppercase tracking-widest bg-white/40 px-3 py-1.5 rounded-xl border border-border">
+                                Mode: Cek Status
+                            </span>
+                        </div>
+
+                        {/* SEARCH IN-PAGE BAR */}
+                        <Card className="p-6 shadow-md bg-white dark:bg-slate-800">
+                            <h3 className="text-sm font-black text-primary uppercase mb-2 flex items-center gap-2">
+                                <span>🔍</span> Cari Atlet / Klub Lain
+                            </h3>
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <input 
+                                    type="text" 
+                                    placeholder="Masukkan nama atlet atau klub..." 
+                                    value={statusSearchQuery} 
+                                    onChange={(e) => setStatusSearchQuery(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleSearchStatus(statusSearchQuery);
+                                    }}
+                                    className="flex-1 px-4 py-3 bg-background border border-border rounded-xl font-semibold shadow-inner text-text-primary focus:ring-1 focus:ring-primary focus:border-primary"
+                                />
+                                <Button 
+                                    onClick={() => handleSearchStatus(statusSearchQuery)}
+                                    disabled={isSearchingStatus || !statusSearchQuery.trim()}
+                                    className="py-3 px-6 rounded-xl font-bold flex items-center justify-center gap-2 text-xs"
+                                >
+                                    {isSearchingStatus ? <Spinner /> : <span>Cari</span>}
+                                </Button>
+                            </div>
+                        </Card>
+
+                        {/* RESULTS BLOCK */}
+                        {isSearchingStatus ? (
+                            <div className="flex justify-center p-20"><Spinner /></div>
+                        ) : statusSearchResults.length === 0 ? (
+                            <Card className="text-center p-12 bg-white dark:bg-slate-800">
+                                <span className="text-5xl">🤷</span>
+                                <h3 className="text-xl font-black mt-4 text-text-primary uppercase">Tidak Ada Hasil</h3>
+                                <p className="text-text-secondary mt-2 text-sm max-w-md mx-auto">
+                                    Tidak ada atlet atau klub terdaftar yang cocok dengan kata kunci <span className="font-bold text-primary">"{statusSearchQuery}"</span>. Harap periksa ejaan nama atau daftar baru sekarang.
+                                </p>
+                            </Card>
+                        ) : (
+                            <div className="space-y-6">
+                                <p className="text-xs font-black text-text-secondary uppercase tracking-wider">Ditemukan {statusSearchResults.length} data pendaftaran:</p>
+                                <div className="grid grid-cols-1 gap-6">
+                                    {statusSearchResults.map((swimmer: any) => {
+                                        const totalAmount = swimmer.payment_amount || 0;
+                                        const hasEntries = swimmer.event_entries && swimmer.event_entries.length > 0;
+                                        
+                                        return (
+                                            <Card key={swimmer.id} className="p-6 shadow-lg bg-white dark:bg-slate-800 border-l-4 border-l-primary flex flex-col md:flex-row justify-between gap-6">
+                                                <div className="space-y-4 flex-1">
+                                                    <div>
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-black uppercase text-lg">
+                                                                {swimmer.name.charAt(0)}
+                                                            </span>
+                                                            <div>
+                                                                <h4 className="text-xl font-black text-text-primary uppercase tracking-tight leading-none">{swimmer.name}</h4>
+                                                                <p className="text-sm font-bold text-primary uppercase tracking-wider mt-1">{swimmer.club || 'Independen'}</p>
+                                                            </div>
+                                                        </div>
+                                                        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs font-semibold text-text-secondary border-t border-dashed border-border pt-3">
+                                                            <span>📅 Lahir: <span className="text-text-primary font-bold">{swimmer.birth_year || '-'}</span></span>
+                                                            <span>• Kelompok Umur: <span className="text-text-primary font-bold">{swimmer.age_group || '-'}</span></span>
+                                                            <span>• Kelamin: <span className="text-text-primary font-bold">{swimmer.gender === 'Male' ? 'Laki-laki' : 'Perempuan'}</span></span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <p className="text-[10px] font-black text-text-secondary uppercase tracking-wider">Nomor Lomba Yang Diikuti ({swimmer.event_entries?.length || 0}):</p>
+                                                        {hasEntries ? (
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                                {swimmer.event_entries.map((entry: any, i: number) => {
+                                                                    const ev = localEvents.find(e => e.id === entry.event_id);
+                                                                    return ev ? (
+                                                                        <div key={i} className="flex justify-between items-center bg-background/50 p-2.5 rounded-xl border border-border text-xs">
+                                                                            <span className="font-bold text-text-primary leading-tight truncate">{formatEventName(ev)}</span>
+                                                                            <span className="font-mono text-xs bg-primary/5 text-primary font-black px-2 py-0.5 rounded border border-primary/10 select-none shrink-0">
+                                                                                {entry.seed_time > 0 ? formatTime(entry.seed_time) : 'No Time'}
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : null;
+                                                                })}
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-xs text-text-secondary italic">Belum memilih nomor lomba.</p>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="md:w-64 border-t md:border-t-0 md:border-l border-border pt-4 md:pt-0 md:pl-6 flex flex-col justify-between shrink-0">
+                                                    <div className="space-y-3">
+                                                        <p className="text-[10px] font-black text-text-secondary uppercase tracking-wider">Status Pembayaran</p>
+                                                        <div className="space-y-1">
+                                                            <p className="text-xs text-text-secondary font-bold">Nominal Terdaftar:</p>
+                                                            <p className="text-2xl font-black text-text-primary tracking-tight">
+                                                                Rp {totalAmount.toLocaleString('id-ID')}
+                                                            </p>
+                                                        </div>
+                                                        <div>
+                                                            {totalAmount > 0 ? (
+                                                                <span className="inline-flex items-center gap-1 bg-green-500/10 text-green-600 px-3 py-1 rounded-full text-xs font-black uppercase">
+                                                                    ✓ Pendaftaran Terverifikasi
+                                                                </span>
+                                                            ) : (
+                                                                <span className="inline-flex items-center gap-1 bg-yellow-500/10 text-yellow-600 px-3 py-1 rounded-full text-xs font-black uppercase animate-pulse">
+                                                                    ⏳ Proses Verifikasi / Gratis
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="text-[10px] text-text-secondary font-semibold italic mt-4 border-t border-dashed border-border pt-3">
+                                                        PIC: {swimmer.pic_name || swimmer.name}<br />
+                                                        Tel: {swimmer.pic_phone || '-'}
+                                                    </div>
+                                                </div>
+                                            </Card>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {regType === 'EVENTS_LIST' && (
+                    <div className="space-y-6 mt-6 pb-20">
+                        <div className="flex justify-between items-center">
+                            <Button variant="secondary" onClick={() => setRegType('CHOICE')}>
+                                &larr; Kembali ke Dashboard
+                            </Button>
+                            <span className="text-xs font-black text-text-secondary uppercase tracking-widest bg-white/40 px-3 py-1.5 rounded-xl border border-border">
+                                Mode: Informasi Acara
+                            </span>
+                        </div>
+
+                        <Card className="p-6 md:p-8 bg-white dark:bg-slate-800 rounded-3xl shadow-lg">
+                            <h3 className="text-2xl font-black text-primary uppercase tracking-tight mb-2">Daftar Nomor Perlombaan</h3>
+                            <p className="text-xs text-text-secondary font-semibold leading-relaxed mb-6">
+                                Di bawah ini adalah daftar lengkap nomor perlombaan yang dibuka untuk kompetisi ini. Hubungi panitia jika Anda memiliki pertanyaan terkait kelompok umur (KU) atau nomor perlombaan.
+                            </p>
+
+                            {localEvents.length === 0 ? (
+                                <div className="text-center py-12">
+                                    <p className="text-text-secondary italic">Belum ada nomor lomba yang dimasukkan oleh panitia.</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {Object.entries(
+                                        localEvents.reduce((acc, event) => {
+                                            const key = event.category || "Semua Kelompok Umur (KU)";
+                                            if (!acc[key]) acc[key] = [];
+                                            acc[key].push(event);
+                                            return acc;
+                                        }, {} as Record<string, SwimEvent[]>)
+                                    ).map(([category, eventsInCategory]: any) => (
+                                        <div key={category} className="border border-border rounded-2xl overflow-hidden shadow-sm bg-background/20 p-5 space-y-3">
+                                            <h4 className="font-black text-primary uppercase tracking-wider text-sm border-b border-border pb-2">
+                                                🏆 Kelompok Umur: {category}
+                                            </h4>
+                                            <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+                                                {eventsInCategory.map((ev: SwimEvent) => (
+                                                    <div key={ev.id} className="flex justify-between items-center bg-surface hover:bg-primary/5 transition-colors p-3 rounded-xl border border-border text-xs">
+                                                        <span className="font-bold text-text-primary">{formatEventName(ev)}</span>
+                                                        <span className="bg-primary/10 text-primary text-[10px] font-black px-2 py-0.5 rounded-md">
+                                                            {ev.entries?.length || 0} Atlet
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </Card>
                     </div>
                 )}
 
-                {regType !== 'CHOICE' && !successMessage && (
+                {(regType === 'INDIVIDUAL' || regType === 'TEAM') && !successMessage && (
                     <form onSubmit={handleSubmit} className="space-y-6 pb-20">
                         <div className="flex justify-start">
                             <Button variant="secondary" onClick={() => { setRegType('CHOICE'); setTeamParticipants([]); setSelectedEvents({}); }}>&larr; Kembali ke Pilihan</Button>
@@ -895,6 +1309,12 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                                             previewUrl={individualPreviewUrl}
                                             compressedBlob={individualCompressedBlob}
                                             isCompressing={isCompressing}
+                                            isConfirmed={isIndividualConfirmed}
+                                            onVerifyClick={() => {
+                                                setShowZoomModal(true);
+                                                setZoomScale(1);
+                                            }}
+                                            terbilang={terbilang}
                                         />
                                     </Card>
                                 )}
@@ -1091,6 +1511,12 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                                             previewUrl={teamPreviewUrl}
                                             compressedBlob={teamCompressedBlob}
                                             isCompressing={isCompressing}
+                                            isConfirmed={isTeamConfirmed}
+                                            onVerifyClick={() => {
+                                                setShowZoomModal(true);
+                                                setZoomScale(1);
+                                            }}
+                                            terbilang={terbilang}
                                         />
                                     </Card>
                                 )}
@@ -1170,6 +1596,162 @@ export const OnlineRegistrationView: React.FC<OnlineRegistrationViewProps> = ({
                     </Card>
                 )}
 
+                {/* MODAL VERIFIKASI BUKTI TRANSFER */}
+                {showZoomModal && (
+                    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md animate-in fade-in duration-200">
+                        <div className="bg-surface border border-border rounded-[2.5rem] shadow-2xl max-w-5xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+                            <div className="p-6 border-b border-border bg-background flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-xl font-black text-primary uppercase tracking-tight">Verifikasi & Cek Detail Bukti Transfer</h3>
+                                    <p className="text-xs text-text-secondary mt-0.5 font-bold">Harap periksa kecocokan nominal transfer di gambar dan yang diinput.</p>
+                                </div>
+                                <button 
+                                    onClick={() => { setShowZoomModal(false); setZoomScale(1); }}
+                                    className="text-text-secondary hover:text-red-500 p-2 rounded-full hover:bg-surface transition-colors"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-6 md:p-8">
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                                    {/* LEFT COLUMN: INTERACTIVE IMAGE WITH ZOOM CONTROLS */}
+                                    <div className="space-y-4">
+                                        <p className="text-xs font-black text-text-secondary uppercase tracking-wider">Gambar Bukti Transfer (Dapat Di-zoom & Di-drag)</p>
+                                        <div className="relative border border-border rounded-3xl overflow-hidden bg-black flex items-center justify-center aspect-[3/4] max-h-[50vh]">
+                                            <div 
+                                                className="w-full h-full overflow-hidden flex items-center justify-center cursor-zoom-in"
+                                                onWheel={(e) => {
+                                                    e.preventDefault();
+                                                    setZoomScale(prev => Math.min(Math.max(prev - e.deltaY * 0.005, 0.8), 5));
+                                                }}
+                                            >
+                                                <img 
+                                                    src={regType === 'INDIVIDUAL' ? individualPreviewUrl : teamPreviewUrl} 
+                                                    alt="Bukti Bayar" 
+                                                    className="max-w-full max-h-full object-contain transition-transform duration-200 origin-center"
+                                                    style={{ transform: `scale(${zoomScale})` }}
+                                                />
+                                            </div>
+
+                                            {/* ZOOM FLOATING CONTROLS */}
+                                            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/70 backdrop-blur-md px-4 py-2 rounded-full border border-white/20">
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => setZoomScale(prev => Math.max(prev - 0.5, 0.8))}
+                                                    className="text-white hover:text-primary font-black px-2 text-lg"
+                                                    title="Zoom Out"
+                                                >
+                                                    －
+                                                </button>
+                                                <span className="text-white font-mono text-xs font-bold min-w-[3rem] text-center">
+                                                    {Math.round(zoomScale * 100)}%
+                                                </span>
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => setZoomScale(prev => Math.min(prev + 0.5, 5))}
+                                                    className="text-white hover:text-primary font-black px-2 text-lg"
+                                                    title="Zoom In"
+                                                >
+                                                    ＋
+                                                </button>
+                                                <button 
+                                                    type="button"
+                                                    onClick={() => setZoomScale(1)}
+                                                    className="text-[10px] text-white/70 hover:text-white font-black uppercase tracking-wider px-2 border-l border-white/20"
+                                                >
+                                                    Reset
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <p className="text-[10px] text-text-secondary font-medium text-center italic">
+                                            * Scroll mouse di atas gambar atau gunakan tombol + / - untuk melakukan zoom in/out detail transaksi.
+                                        </p>
+                                    </div>
+
+                                    {/* RIGHT COLUMN: COMPARISON & MANDATORY QUESTIONS */}
+                                    <div className="space-y-6">
+                                        <div className="bg-primary/5 p-6 rounded-3xl border border-primary/20 space-y-4">
+                                            <span className="text-xs font-black text-primary uppercase tracking-widest">Detail Nominal yang Diinput</span>
+                                            <div className="space-y-1">
+                                                <p className="text-sm text-text-secondary font-bold">Nominal Transfer:</p>
+                                                <p className="text-3xl font-black text-primary tracking-tight">
+                                                    Rp {parseInt(regType === 'INDIVIDUAL' ? formData.paymentAmount : teamFormData.paymentAmount).toLocaleString('id-ID')}
+                                                </p>
+                                                <p className="text-xs font-bold italic text-text-secondary uppercase tracking-tight mt-1">
+                                                    # Terbilang: <span className="text-primary font-black not-italic">"{terbilang(parseInt(regType === 'INDIVIDUAL' ? formData.paymentAmount : teamFormData.paymentAmount) || 0)} Rupiah"</span>
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-4">
+                                            <h4 className="text-xs font-black text-text-secondary uppercase tracking-wider">Lembar Pernyataan & Konfirmasi Mandiri:</h4>
+                                            
+                                            <div className="bg-surface p-5 rounded-3xl border border-border shadow-sm space-y-4">
+                                                <label className="flex items-start gap-3 cursor-pointer">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={regType === 'INDIVIDUAL' ? tempIndividualCheck1 : tempTeamCheck1}
+                                                        onChange={(e) => {
+                                                            if (regType === 'INDIVIDUAL') setTempIndividualCheck1(e.target.checked);
+                                                            else setTempTeamCheck1(e.target.checked);
+                                                        }}
+                                                        className="mt-1 h-5 w-5 text-primary rounded border-border focus:ring-primary"
+                                                    />
+                                                    <span className="text-xs font-semibold text-text-primary leading-relaxed">
+                                                        Saya menyatakan bahwa nominal transfer yang tertera pada <span className="text-primary font-black">GAMBAR BUKTI</span> di samping adalah benar-benar cocok sebesar <span className="text-primary font-black">Rp {parseInt(regType === 'INDIVIDUAL' ? formData.paymentAmount : teamFormData.paymentAmount).toLocaleString('id-ID')}</span>.
+                                                    </span>
+                                                </label>
+
+                                                <label className="flex items-start gap-3 cursor-pointer border-t border-border pt-4">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={regType === 'INDIVIDUAL' ? tempIndividualCheck2 : tempTeamCheck2}
+                                                        onChange={(e) => {
+                                                            if (regType === 'INDIVIDUAL') setTempIndividualCheck2(e.target.checked);
+                                                            else setTempTeamCheck2(e.target.checked);
+                                                        }}
+                                                        className="mt-1 h-5 w-5 text-primary rounded border-border focus:ring-primary"
+                                                    />
+                                                    <span className="text-xs font-semibold text-text-primary leading-relaxed">
+                                                        Saya memastikan gambar bukti transfer ini <span className="text-primary font-black">SANGAT JELAS / TIDAK BURAM</span>, tulisan tanggal/nominal/pengirim dapat dibaca penuh agar mempercepat validasi panitia.
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        </div>
+
+                                        <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-2xl flex gap-3 items-start">
+                                            <span className="text-xl">💡</span>
+                                            <p className="text-[11px] text-yellow-800 leading-normal font-semibold">
+                                                Kesalahan dalam mengunggah bukti bayar atau ketidakcocokan nominal dapat mengakibatkan pendaftaran ditolak oleh sistem audit panitia.
+                                            </p>
+                                        </div>
+
+                                        <Button 
+                                            type="button"
+                                            disabled={!(regType === 'INDIVIDUAL' ? (tempIndividualCheck1 && tempIndividualCheck2) : (tempTeamCheck1 && tempTeamCheck2))}
+                                            onClick={() => {
+                                                if (regType === 'INDIVIDUAL') {
+                                                    setIsIndividualConfirmed(true);
+                                                } else {
+                                                    setIsTeamConfirmed(true);
+                                                }
+                                                setShowZoomModal(false);
+                                                setZoomScale(1);
+                                            }}
+                                            className="w-full py-4 text-sm font-black shadow-lg rounded-2xl flex items-center justify-center gap-2"
+                                        >
+                                            <span>✓ YA, SAYA SUDAH VERIFIKASI & NOMINAL COCOK</span>
+                                        </Button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
             </div>
         </div>
     );
@@ -1183,9 +1765,23 @@ interface PaymentSectionProps {
     previewUrl: string;
     compressedBlob: Blob | null;
     isCompressing: boolean;
+    isConfirmed: boolean;
+    onVerifyClick: () => void;
+    terbilang: (nilai: number) => string;
 }
 
-const PaymentSection: React.FC<PaymentSectionProps> = ({ info, data, onFileChange, onAmountChange, previewUrl, compressedBlob, isCompressing }) => {
+const PaymentSection: React.FC<PaymentSectionProps> = ({ 
+    info, 
+    data, 
+    onFileChange, 
+    onAmountChange, 
+    previewUrl, 
+    compressedBlob, 
+    isCompressing,
+    isConfirmed,
+    onVerifyClick,
+    terbilang
+}) => {
     // Component already handles free competition with a check but we also hide the Card in the main render
     if (info?.isFree) {
         return null;
@@ -1231,21 +1827,48 @@ const PaymentSection: React.FC<PaymentSectionProps> = ({ info, data, onFileChang
                                 <span className="text-xs font-bold text-primary animate-pulse">Mengompresi gambar di browser...</span>
                             </div>
                         ) : previewUrl ? (
-                            <div className="w-full flex items-center gap-4">
-                                <img src={previewUrl} alt="Preview Bukti Bayar" className="h-20 w-20 object-cover rounded-xl border border-border shadow-sm bg-white" />
+                            <div className="w-full flex items-start gap-4">
+                                <img 
+                                    src={previewUrl} 
+                                    alt="Preview Bukti Bayar" 
+                                    onClick={onVerifyClick}
+                                    className="h-20 w-20 object-cover rounded-xl border border-border shadow-sm bg-white cursor-pointer hover:opacity-85 transition-opacity mt-1 shrink-0" 
+                                    title="Klik untuk memperbesar gambar"
+                                />
                                 <div className="text-left flex-grow">
                                     <p className="text-xs font-black text-green-600 flex items-center gap-1">
                                         <span>✓</span> Gambar Berhasil Dikompresi
                                     </p>
                                     {compressedBlob && (
                                         <p className="text-[10px] text-text-secondary font-bold">
-                                            Ukuran: <span className="text-primary font-black">{(compressedBlob.size / 1024).toFixed(1)} KB</span> (Format WebP Efisien)
+                                            Ukuran: <span className="text-primary font-black">{(compressedBlob.size / 1024).toFixed(1)} KB</span> (WebP Ringkas)
                                         </p>
                                     )}
-                                    <p className="text-[9px] text-text-secondary opacity-60 mt-1 italic leading-tight">
-                                        Menghemat kuota egress data. Gambar hanya diunduh saat admin membukanya.
-                                    </p>
-                                    <label className="inline-block mt-2 text-[10px] font-black text-primary hover:underline cursor-pointer">
+                                    
+                                    <div className="mt-3 space-y-2">
+                                        <button 
+                                            type="button" 
+                                            onClick={onVerifyClick}
+                                            className="py-1.5 px-3 text-xs font-black rounded-lg flex items-center gap-1 bg-primary text-white hover:bg-primary-dark transition-colors shadow-sm"
+                                        >
+                                            🔍 Perbesar & Verifikasi Bukti Bayar
+                                        </button>
+
+                                        {isConfirmed ? (
+                                            <div className="bg-green-500/10 border border-green-500/20 text-green-700 p-2.5 rounded-xl text-[10px] font-bold leading-relaxed shadow-sm">
+                                                ✓ Bukti Terverifikasi Sesuai:<br />
+                                                <span className="text-xs font-black text-green-800">Rp {parseInt(data.paymentAmount || '0').toLocaleString('id-ID')}</span><br />
+                                                <span className="italic opacity-80">"{terbilang(parseInt(data.paymentAmount || '0'))} Rupiah"</span>
+                                            </div>
+                                        ) : (
+                                            <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 p-2.5 rounded-xl text-[10px] font-bold leading-relaxed shadow-sm">
+                                                ⚠️ Verifikasi Bukti Bayar Diperlukan!<br />
+                                                <span className="opacity-90">Silakan klik tombol merah/biru "Perbesar & Verifikasi" di atas untuk menyetujui pernyataan nominal transfer.</span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <label className="inline-block mt-3 text-[10px] font-black text-primary hover:underline cursor-pointer">
                                         Ganti Gambar
                                         <input type="file" accept="image/*" onChange={onFileChange} className="hidden" />
                                     </label>

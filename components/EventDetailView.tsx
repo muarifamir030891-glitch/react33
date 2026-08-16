@@ -15,6 +15,7 @@ interface EventDetailViewProps {
   onBack: () => void;
   onDataUpdate: () => void;
   competitionInfo: CompetitionInfo | null;
+  onStartTiming?: (eventId: string) => void;
 }
 
 interface DetailedEntry extends EventEntry {
@@ -56,7 +57,7 @@ const RecordDisplayRow: React.FC<{ record: SwimRecord | undefined, type: string 
     );
 };
 
-export const EventDetailView: React.FC<EventDetailViewProps> = ({ eventId, onBack, onDataUpdate, competitionInfo }) => {
+export const EventDetailView: React.FC<EventDetailViewProps> = ({ eventId, onBack, onDataUpdate, competitionInfo, onStartTiming }) => {
     const [event, setEvent] = useState<SwimEvent | null>(null);
     const [detailedEntries, setDetailedEntries] = useState<DetailedEntry[]>([]);
     const [records, setRecords] = useState<SwimRecord[]>([]);
@@ -268,14 +269,29 @@ export const EventDetailView: React.FC<EventDetailViewProps> = ({ eventId, onBac
                     &larr; Kembali ke Daftar Lomba
                 </Button>
                 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    {onStartTiming && (
+                        <Button 
+                            variant="primary" 
+                            size="sm" 
+                            onClick={() => onStartTiming(event.id)}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 shadow-sm"
+                            title="Buka Live Timing & Kontrol Hardware ESP32"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>⏱️ Antarmuka Kontrol Timing (ESP32)</span>
+                        </Button>
+                    )}
+
                     {event.lanesLocked ? (
                         <>
                             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-red-500/10 text-red-500 border border-red-500/20">
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                                     <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
                                 </svg>
-                                Lintasan Dikunci (Official)
+                                🔐 Lintasan Dikunci (Official)
                             </span>
                             <Button 
                                 variant="secondary" 
@@ -283,7 +299,7 @@ export const EventDetailView: React.FC<EventDetailViewProps> = ({ eventId, onBac
                                 onClick={handleUnlockLanes} 
                                 disabled={isProcessingAction}
                             >
-                                Buka Kunci
+                                🔓 Buka Kunci
                             </Button>
                         </>
                     ) : (
@@ -292,7 +308,7 @@ export const EventDetailView: React.FC<EventDetailViewProps> = ({ eventId, onBac
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
                                     <path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 016 0v2h2V7a5 5 0 00-5-5z" />
                                 </svg>
-                                Lintasan Dinamis (Draf)
+                                🔓 Lintasan Dinamis (Draf)
                             </span>
                             <Button 
                                 variant="primary" 
@@ -300,7 +316,7 @@ export const EventDetailView: React.FC<EventDetailViewProps> = ({ eventId, onBac
                                 onClick={handleLockLanes} 
                                 disabled={isProcessingAction || detailedEntries.length === 0}
                             >
-                                Kunci Lintasan
+                                🔐 Kunci Lintasan
                             </Button>
                         </>
                     )}

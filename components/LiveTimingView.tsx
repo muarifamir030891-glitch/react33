@@ -5,6 +5,7 @@ import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Spinner } from './ui/Spinner';
 import { Input } from './ui/Input';
+import { Modal } from './ui/Modal';
 import { formatEventName, generateHeats, reconstructLockedHeats, formatTime, parseMsToTimeParts } from '../constants';
 import { useNotification } from './ui/NotificationManager';
 
@@ -19,11 +20,19 @@ interface LiveTimingViewProps {
   onStatusChange: (status: ArduinoStatus) => void;
 }
 
-const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-const PauseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
-const StopIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 10h6v4H9z" /></svg>;
-const ResetIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 9a9 9 0 0114.24-4.76L20 5M20 15a9 9 0 01-14.24 4.76L4 19" /></svg>;
-const UsbIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>;
+interface SerialLogEntry {
+  id: string;
+  timestamp: string;
+  text: string;
+  type: 'tx' | 'rx' | 'sys' | 'err';
+}
+
+const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+const PauseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+const ResetIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 9a9 9 0 0114.24-4.76L20 5M20 15a9 9 0 01-14.24 4.76L4 19" /></svg>;
+const UsbIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>;
+const TerminalIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
+const CogIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
 export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack, onDataUpdate, swimmers, competitionInfo, onStatusChange }) => {
     const [event, setEvent] = useState<SwimEvent | null>(null);
@@ -44,20 +53,59 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
     const startTimeRef = useRef(0);
     const pausedTimeRef = useRef(0);
 
-    // Serial / Arduino State
+    // ESP32 Serial State
     const [isSerialConnected, setIsSerialConnected] = useState(false);
+    const [selectedBaudRate, setSelectedBaudRate] = useState<number>(115200);
+    const [activeLanesSetting, setActiveLanesSetting] = useState<number>(8);
     const portRef = useRef<any>(null);
     const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
+    const keepReadingRef = useRef<boolean>(false);
 
-    // Need refs for accessing current state inside serial callback/loop without dependencies
+    // Serial Terminal Logs
+    const [serialLogs, setSerialLogs] = useState<SerialLogEntry[]>([]);
+    const [isTerminalOpen, setIsTerminalOpen] = useState(false);
+    const terminalBottomRef = useRef<HTMLDivElement>(null);
+
+    // Pin Remap Modal State
+    const [isMapModalOpen, setIsMapModalOpen] = useState(false);
+    const [mapLogicalLane, setMapLogicalLane] = useState<number>(1); // 1-10
+    const [mapPhysicalPin, setMapPhysicalPin] = useState<number>(1); // 1-10
+
+    // Refs for accessing state in serial loop
     const isStopwatchRunningRef = useRef(isStopwatchRunning);
     const stopwatchTimeRef = useRef(stopwatchTime);
-    
-    // Update refs when state changes
+    const currentHeatRef = useRef<Heat | null>(null);
+    const heatsRef = useRef<Heat[]>([]);
+    const currentHeatIndexRef = useRef<number>(0);
+    const timesRef = useRef(times);
+    const dqSwimmersRef = useRef(dqSwimmers);
+
     useEffect(() => {
         isStopwatchRunningRef.current = isStopwatchRunning;
         stopwatchTimeRef.current = stopwatchTime;
-    }, [isStopwatchRunning, stopwatchTime]);
+        heatsRef.current = heats;
+        currentHeatIndexRef.current = currentHeatIndex;
+        currentHeatRef.current = heats[currentHeatIndex] || null;
+        timesRef.current = times;
+        dqSwimmersRef.current = dqSwimmers;
+    }, [isStopwatchRunning, stopwatchTime, heats, currentHeatIndex, times, dqSwimmers]);
+
+    const appendLog = useCallback((text: string, type: 'tx' | 'rx' | 'sys' | 'err') => {
+        const timeStr = new Date().toLocaleTimeString('id-ID', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+        const entry: SerialLogEntry = {
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+            timestamp: timeStr,
+            text,
+            type
+        };
+        setSerialLogs(prev => [...prev.slice(-150), entry]); // keep last 150 entries
+    }, []);
+
+    useEffect(() => {
+        if (isTerminalOpen && terminalBottomRef.current) {
+            terminalBottomRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [serialLogs, isTerminalOpen]);
 
     useEffect(() => {
         if ("serial" in navigator) {
@@ -77,6 +125,8 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 .filter(e => e.swimmer);
             
             const lanes = competitionInfo?.numberOfLanes || 8;
+            setActiveLanesSetting(lanes >= 10 ? 10 : 8);
+
             const generated = eventData.lanesLocked
                 ? reconstructLockedHeats(detailedEntries)
                 : generateHeats(detailedEntries, lanes);
@@ -139,8 +189,28 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         };
     }, [isStopwatchRunning]);
 
-    // --- SERIAL / ARDUINO CONNECTION LOGIC ---
+    // --- SEND COMMAND HELPER ---
+    const sendSerialCommand = async (command: string) => {
+        if (!portRef.current || !portRef.current.writable) {
+            addNotification("ESP32 belum terhubung via USB.", "error");
+            return;
+        }
+        try {
+            const textEncoder = new TextEncoder();
+            const writer = portRef.current.writable.getWriter();
+            await writer.write(textEncoder.encode(command + "\n"));
+            writer.releaseLock();
+            appendLog(`TX -> ${command}`, 'tx');
+        } catch (err: any) {
+            console.error("Gagal mengirim data serial ke ESP32:", err);
+            appendLog(`ERR TX [${command}]: ${err.message}`, 'err');
+            addNotification(`Gagal mengirim ke ESP32: ${err.message}`, "error");
+        }
+    };
+
+    // --- SERIAL DISCONNECT LOGIC ---
     const disconnectSerial = useCallback(async () => {
+        keepReadingRef.current = false;
         if (readerRef.current) {
             try {
                 await readerRef.current.cancel();
@@ -161,14 +231,16 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         }
         if (isSerialConnected) {
             setIsSerialConnected(false);
-            addNotification("Arduino terputus.", "info");
+            appendLog("Sistem Serial ESP32 Terputus.", "sys");
+            addNotification("ESP32 terputus.", "info");
             onStatusChange('disconnected');
         }
-    }, [isSerialConnected, addNotification, onStatusChange]);
+    }, [isSerialConnected, addNotification, onStatusChange, appendLog]);
 
+    // --- SERIAL CONNECT LOGIC ---
     const connectSerial = async () => {
         if (!("serial" in navigator)) {
-            addNotification("Browser ini tidak mendukung Web Serial API. Gunakan Chrome atau Edge.", "error");
+            addNotification("Browser ini tidak mendukung Web Serial API. Silakan gunakan Google Chrome atau Microsoft Edge di Desktop.", "error");
             onStatusChange('unavailable');
             return;
         }
@@ -180,11 +252,18 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
 
         try {
             const port = await (navigator as any).serial.requestPort();
-            await port.open({ baudRate: 9600 });
+            await port.open({ baudRate: selectedBaudRate });
             portRef.current = port;
             setIsSerialConnected(true);
-            addNotification("Arduino terhubung! Menunggu sinyal 'S' (Start) atau '1'-'8' (Lane)...", "success");
+            keepReadingRef.current = true;
+            appendLog(`ESP32 Terhubung pada Baud Rate ${selectedBaudRate} bps. Menunggu sinyal...`, 'sys');
+            addNotification(`ESP32 terhubung (${selectedBaudRate} baud). Sistem siap!`, "success");
             onStatusChange('connected');
+
+            // Send lane configuration to ESP32 on startup
+            setTimeout(() => {
+                sendSerialCommand(`LANES:${activeLanesSetting}`);
+            }, 300);
 
             const textDecoder = new TextDecoderStream();
             port.readable.pipeTo(textDecoder.writable);
@@ -193,7 +272,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
 
             let buffer = "";
 
-            while (true) {
+            while (keepReadingRef.current) {
                 const { value, done } = await reader.read();
                 if (done) {
                     reader.releaseLock();
@@ -205,45 +284,151 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
                 for (const line of lines) {
-                    processSerialData(line.trim());
+                    const cleanLine = line.trim();
+                    if (cleanLine.length > 0) {
+                        appendLog(`RX <- ${cleanLine}`, 'rx');
+                        processSerialData(cleanLine);
+                    }
                 }
             }
         } catch (error: any) {
             console.error("Serial connection error:", error);
-            if (error.name !== 'NotFoundError') { // Ignore if user cancels port selection
-                addNotification(`Gagal terhubung ke Arduino: ${error.message}`, "error");
+            if (error.name !== 'NotFoundError') {
+                appendLog(`ERR: ${error.message}`, 'err');
+                addNotification(`Gagal terhubung ke ESP32: ${error.message}`, "error");
                 onStatusChange('error');
             }
             setIsSerialConnected(false);
         }
     };
 
-    // Process data from Arduino. 
-    // Expected format: "S" for Start, "1"-"8" for Lane finish.
+    // --- PROCESS DATA FROM ESP32 ---
     const processSerialData = (data: string) => {
-        const trimmedData = data.toUpperCase().trim();
+        const trimmed = data.trim();
 
-        if (trimmedData === "S" || trimmedData === "START") {
-            if (!isStopwatchRunningRef.current) {
-                setStopwatchTime(0);
-                pausedTimeRef.current = 0;
-                startTimeRef.current = performance.now();
-                setIsStopwatchRunning(true);
-                addNotification("Start Signal diterima dari Arduino!", "success", 2000);
+        // 1. Start Signal ("S" or "GO")
+        if (trimmed === "S" || trimmed === "GO" || trimmed.startsWith("GO")) {
+            setStopwatchTime(0);
+            pausedTimeRef.current = 0;
+            startTimeRef.current = performance.now();
+            setIsStopwatchRunning(true);
+            addNotification("🚦 Sinyal Start (GO) diterima dari ESP32!", "success", 2500);
+            return;
+        }
+
+        // 2. Reset Signal ("R" or "READY" or "R_ACK")
+        if (trimmed === "R" || trimmed === "READY" || trimmed === "R_ACK") {
+            setIsStopwatchRunning(false);
+            setStopwatchTime(0);
+            pausedTimeRef.current = 0;
+            startTimeRef.current = 0;
+            if (trimmed !== "R_ACK") {
+                addNotification("🔄 Sistem Reset diterima dari ESP32.", "info", 2000);
             }
             return;
         }
-         if (trimmedData === "R" || trimmedData === "RESET") {
-            handleReset();
-            addNotification("Reset Signal diterima dari Arduino!", "info", 2000);
+
+        // 3. Lane Finish Signal: "LANE:<laneNumber>:<timeMs>"
+        // Contoh: "LANE:1:25430"
+        if (trimmed.startsWith("LANE:")) {
+            const parts = trimmed.split(":");
+            if (parts.length >= 3) {
+                const laneNumber = parseInt(parts[1], 10);
+                const timeMs = parseInt(parts[2], 10);
+
+                if (!isNaN(laneNumber) && !isNaN(timeMs)) {
+                    const currentHeat = currentHeatRef.current;
+                    if (currentHeat) {
+                        const assignment = currentHeat.assignments.find(a => a.lane === laneNumber);
+                        if (assignment) {
+                            const swimmerId = assignment.entry.swimmer.id;
+                            const timeParts = parseMsToTimeParts(timeMs);
+                            
+                            setTimes(prev => ({
+                                ...prev,
+                                [swimmerId]: timeParts
+                            }));
+
+                            setFlashingLane(swimmerId);
+                            setTimeout(() => setFlashingLane(null), 2000);
+
+                            addNotification(
+                                `🏁 Lintasan ${laneNumber} (${assignment.entry.swimmer.name}) Touchpad: ${formatTime(timeMs)}`,
+                                "success",
+                                4000
+                            );
+                        }
+                    }
+                }
+            }
             return;
         }
 
-        const laneNumber = parseInt(trimmedData, 10);
-        if (!isNaN(laneNumber) && laneNumber > 0 && laneNumber <= 10) {
-            const currentHeat = heats[currentHeatIndex];
+        // 4. Heartbeat Time: "TIME:<timeMs>"
+        if (trimmed.startsWith("TIME:")) {
+            // Heartbeat can verify synchronization
+            return;
+        }
+
+        // 5. Disqualification confirmation: "DQ_OK:<lane>"
+        if (trimmed.startsWith("DQ_OK:")) {
+            const laneNum = parseInt(trimmed.substring(6), 10);
+            const currentHeat = currentHeatRef.current;
             if (currentHeat) {
-                const assignment = currentHeat.assignments.find(a => a.lane === laneNumber);
+                const ass = currentHeat.assignments.find(a => a.lane === laneNum);
+                if (ass) {
+                    setDqSwimmers(prev => new Set(prev).add(ass.entry.swimmer.id));
+                }
+            }
+            addNotification(`⚠️ Lintasan ${laneNum} resmi didiskualifikasi (DQ) pada ESP32.`, "warning", 3000);
+            return;
+        }
+
+        // 6. Race completed / closed: "RACE_COMPLETE", "END_ACK", "RACE_TIMEOUT"
+        if (trimmed === "RACE_COMPLETE" || trimmed === "END_ACK" || trimmed === "RACE_TIMEOUT") {
+            setIsStopwatchRunning(false);
+            if (trimmed === "RACE_TIMEOUT") {
+                addNotification("⏱️ Race Auto-Timeout (10 Menit) tercapai di ESP32.", "warning", 4000);
+            } else {
+                addNotification("🏁 Perlombaan seri ini telah selesai di ESP32. Silakan simpan hasil!", "info", 4000);
+            }
+            return;
+        }
+
+        // 7. Active lanes set response: "SET_LANES_OK:<lanes>"
+        if (trimmed.startsWith("SET_LANES_OK:")) {
+            const count = parseInt(trimmed.substring(13), 10);
+            setActiveLanesSetting(count);
+            addNotification(`Konfigurasi ${count} Lintasan Aktif dikonfirmasi ESP32.`, "info", 2000);
+            return;
+        }
+
+        // 8. Port Mapping response: "MAP_OK:<logical>:<physical>"
+        if (trimmed.startsWith("MAP_OK:")) {
+            const parts = trimmed.split(":");
+            const logicalLane = parseInt(parts[1], 10) + 1;
+            const physicalPin = parseInt(parts[2], 10) + 1;
+            addNotification(`🔀 Mapping Tombol Berhasil: Lintasan ${logicalLane} diarahkan ke Tombol Fisik ${physicalPin}.`, "success", 4000);
+            setIsMapModalOpen(false);
+            return;
+        }
+
+        // 9. Error handling from ESP32
+        if (trimmed.startsWith("MAP_ERR:")) {
+            addNotification(`Gagal Mapping Port ESP32: ${trimmed}`, "error");
+            return;
+        }
+        if (trimmed.startsWith("DQ_ERR:")) {
+            addNotification(`Gagal DQ pada ESP32: ${trimmed}`, "error");
+            return;
+        }
+
+        // 10. Backward compatibility with single digit lane finish: "1" to "10"
+        const singleLane = parseInt(trimmed, 10);
+        if (!isNaN(singleLane) && singleLane > 0 && singleLane <= 10) {
+            const currentHeat = currentHeatRef.current;
+            if (currentHeat) {
+                const assignment = currentHeat.assignments.find(a => a.lane === singleLane);
                 if (assignment) {
                     handleTapLane(assignment.entry.swimmer.id);
                 }
@@ -258,12 +443,18 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         };
     }, [disconnectSerial]);
 
-
     const handleStartStop = () => {
-        if (isStopwatchRunning) { // Stopping
+        if (isStopwatchRunning) {
             pausedTimeRef.current = stopwatchTime;
+            setIsStopwatchRunning(false);
+        } else {
+            // Trigger start in web app & send start to ESP32 if connected
+            if (isSerialConnected) {
+                sendSerialCommand("S");
+            }
+            startTimeRef.current = performance.now();
+            setIsStopwatchRunning(true);
         }
-        setIsStopwatchRunning(!isStopwatchRunning);
     };
 
     const handleReset = () => {
@@ -271,6 +462,36 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         setStopwatchTime(0);
         pausedTimeRef.current = 0;
         startTimeRef.current = 0;
+        if (isSerialConnected) {
+            sendSerialCommand("R");
+        }
+    };
+
+    const handleForceEndRace = () => {
+        if (isSerialConnected) {
+            sendSerialCommand("END");
+        } else {
+            setIsStopwatchRunning(false);
+        }
+        addNotification("Perintah penutupan lomba (END) dikirim.", "info");
+    };
+
+    const handleSetLanes = (count: number) => {
+        setActiveLanesSetting(count);
+        if (isSerialConnected) {
+            sendSerialCommand(`LANES:${count}`);
+        }
+    };
+
+    const handleSendPinMap = () => {
+        // ESP32 uses 0-based indices for logical and physical pins
+        const logicalIndex = mapLogicalLane - 1;
+        const physicalIndex = mapPhysicalPin - 1;
+        if (isSerialConnected) {
+            sendSerialCommand(`MAP:${logicalIndex}:${physicalIndex}`);
+        } else {
+            addNotification("ESP32 belum terhubung via USB.", "error");
+        }
     };
     
     const handleTapLane = (swimmerId: string) => {
@@ -281,7 +502,6 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
 
         if (captureTime > 0) {
              setTimes(prev => {
-                 // Don't overwrite if already has a time (unless 0/empty)
                  const existing = prev[swimmerId];
                  const existingMs = (parseInt(existing?.min || '0') * 60000) + (parseInt(existing?.sec || '0') * 1000) + parseInt(existing?.ms || '0');
                  
@@ -305,7 +525,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         }));
     };
     
-    const handleToggleDq = (swimmerId: string) => {
+    const handleToggleDq = (swimmerId: string, laneNumber: number) => {
         const newDqSwimmers = new Set(dqSwimmers);
         const newNsSwimmers = new Set(nsSwimmers);
 
@@ -313,7 +533,11 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
             newDqSwimmers.delete(swimmerId);
         } else {
             newDqSwimmers.add(swimmerId);
-            newNsSwimmers.delete(swimmerId); // Ensure NS is off
+            newNsSwimmers.delete(swimmerId);
+            // Send DQ command to ESP32 if running
+            if (isSerialConnected) {
+                sendSerialCommand(`DQ:${laneNumber}`);
+            }
         }
         setDqSwimmers(newDqSwimmers);
         setNsSwimmers(newNsSwimmers);
@@ -327,7 +551,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
             newNsSwimmers.delete(swimmerId);
         } else {
             newNsSwimmers.add(swimmerId);
-            newDqSwimmers.delete(swimmerId); // Ensure DQ is off
+            newDqSwimmers.delete(swimmerId);
         }
         setNsSwimmers(newNsSwimmers);
         setDqSwimmers(newDqSwimmers);
@@ -348,12 +572,11 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                      if (nsSwimmers.has(a.entry.swimmerId)) {
                         return { swimmerId: a.entry.swimmerId, time: -2 };
                     }
-                    if (!time) return { swimmerId: a.entry.swimmerId, time: -2 }; // Default to NS if no time object
+                    if (!time) return { swimmerId: a.entry.swimmerId, time: -2 };
                     const ms = (parseInt(time.min || '0') * 60 * 1000) + (parseInt(time.sec || '0') * 1000) + parseInt(time.ms || '0');
                     
-                    // Treat a final time of 0 as a "No Show" or invalid time, rather than a valid result.
                     if (ms === 0) {
-                        return { swimmerId: a.entry.swimmerId, time: -2 }; // NS
+                        return { swimmerId: a.entry.swimmerId, time: -2 };
                     }
                     return { swimmerId: a.entry.swimmerId, time: ms };
                 });
@@ -382,94 +605,433 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
     const currentHeat = heats[currentHeatIndex];
 
     return (
-        <div>
-            <Button onClick={onBack} variant="secondary" className="mb-4">&larr; Kembali</Button>
-            <h1 className="text-3xl font-bold">{formatEventName(event)}</h1>
-            <div className="flex items-center justify-between">
-                <h2 className="text-xl text-text-secondary">Chrono-Mode</h2>
-                {/* Arduino Connect Button */}
-                <Button 
-                    onClick={connectSerial} 
-                    variant={isSerialConnected ? "primary" : "secondary"}
-                    className={`flex items-center space-x-2 ${isSerialConnected ? 'bg-green-600 hover:bg-green-700' : ''}`}
-                    title="Hubungkan ke Arduino Uno via USB untuk input otomatis"
-                >
-                    <UsbIcon />
-                    <span>{isSerialConnected ? 'Arduino Terhubung' : 'Hubungkan Arduino'}</span>
-                </Button>
+        <div className="space-y-6">
+            {/* Header with Navigation & Title */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                    <Button onClick={onBack} variant="secondary" className="mb-2">&larr; Kembali ke Detail Lomba</Button>
+                    <h1 className="text-2xl md:text-3xl font-bold text-text-primary">{formatEventName(event)}</h1>
+                    <p className="text-xs md:text-sm text-text-secondary">Antarmuka Kontrol Timing Otomatis &amp; Sensor ESP32 (8 / 10 Lintasan)</p>
+                </div>
+
+                {/* ESP32 Main Action Header Buttons */}
+                <div className="flex flex-wrap items-center gap-2">
+                    <select
+                        aria-label="Pilih Baud Rate"
+                        value={selectedBaudRate}
+                        onChange={e => setSelectedBaudRate(Number(e.target.value))}
+                        disabled={isSerialConnected}
+                        className="bg-surface border border-border text-xs rounded-lg px-2 py-2 text-text-primary focus:ring-1 focus:ring-primary"
+                        title="Baud Rate Port Serial"
+                    >
+                        <option value={115200}>ESP32 (115200 Baud)</option>
+                        <option value={9600}>Arduino Uno (9600 Baud)</option>
+                    </select>
+
+                    <Button 
+                        onClick={connectSerial} 
+                        variant={isSerialConnected ? "primary" : "secondary"}
+                        className={`flex items-center gap-2 text-xs py-2 px-3 ${isSerialConnected ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'border border-border'}`}
+                        title="Hubungkan ke mikrokontroler ESP32 via Web Serial USB"
+                    >
+                        <UsbIcon />
+                        <span>{isSerialConnected ? 'ESP32 Terhubung' : 'Hubungkan ESP32'}</span>
+                    </Button>
+
+                    <Button
+                        onClick={() => setIsTerminalOpen(!isTerminalOpen)}
+                        variant="secondary"
+                        size="sm"
+                        className="flex items-center gap-1.5 text-xs py-2 px-3"
+                        title="Buka Monitor Log Serial"
+                    >
+                        <TerminalIcon />
+                        <span>Log Serial</span>
+                    </Button>
+                </div>
             </div>
-            
-            <Card className="my-6">
-                <div className="text-center">
-                    <p className="text-8xl font-mono tracking-tighter text-primary">{formattedStopwatchTime}</p>
-                    <div className="flex justify-center space-x-4 mt-4">
-                        <Button onClick={handleStartStop} className="px-6 py-3 text-lg">
-                            {isStopwatchRunning ? <PauseIcon /> : <PlayIcon />}
-                            <span className="ml-2">{isStopwatchRunning ? 'Pause' : 'Start'}</span>
+
+            {/* Hardware Status & Quick Controls Bar */}
+            <Card className="bg-surface border border-border/80 p-4">
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                    <div className="flex items-center gap-3">
+                        <div className={`w-3.5 h-3.5 rounded-full flex-shrink-0 ${isSerialConnected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm text-text-primary">
+                                    {isSerialConnected ? 'ESP32 Active Control' : 'ESP32 Disconnected (Mode Manual Standby)'}
+                                </span>
+                                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-background border border-border text-text-secondary">
+                                    {activeLanesSetting} Lintasan Aktif
+                                </span>
+                            </div>
+                            <p className="text-xs text-text-secondary">
+                                {isSerialConnected 
+                                    ? 'Menerima sinyal touch finish (LANE:X:timeMs), Start (S), Reset (R), dan DQ (DQ:X).'
+                                    : 'Sambungkan kabel USB ESP32 ke laptop/PC dan klik tombol "Hubungkan ESP32" di atas.'}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                        {/* Lane Count Switcher */}
+                        <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+                            <button
+                                onClick={() => handleSetLanes(8)}
+                                className={`px-2.5 py-1.5 font-bold transition-colors ${activeLanesSetting === 8 ? 'bg-primary text-white' : 'bg-background text-text-secondary hover:text-text-primary'}`}
+                            >
+                                8 Lintasan
+                            </button>
+                            <button
+                                onClick={() => handleSetLanes(10)}
+                                className={`px-2.5 py-1.5 font-bold transition-colors ${activeLanesSetting === 10 ? 'bg-primary text-white' : 'bg-background text-text-secondary hover:text-text-primary'}`}
+                            >
+                                10 Lintasan
+                            </button>
+                        </div>
+
+                        {/* Force End Button */}
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={handleForceEndRace}
+                            disabled={!isStopwatchRunning && !isSerialConnected}
+                            className="text-xs text-amber-500 border-amber-500/30 hover:bg-amber-500/10"
+                            title="Tutup paksa perlombaan jika ada perenang DNS / sensor macet"
+                        >
+                            ⏹️ Tutup Race (END)
                         </Button>
-                        <Button onClick={handleReset} variant="secondary" className="px-6 py-3 text-lg">
-                            <ResetIcon />
-                            <span className="ml-2">Reset</span>
+
+                        {/* Remap Pin Modal Button */}
+                        <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => setIsMapModalOpen(true)}
+                            className="text-xs flex items-center gap-1"
+                            title="Konfigurasi pengalihan pin cadangan jika tombol fisik/touchpad rusak"
+                        >
+                            <CogIcon />
+                            <span>Remap Pin Cadangan</span>
                         </Button>
                     </div>
                 </div>
             </Card>
 
+            {/* Serial Terminal Log Console (Collapsible) */}
+            {isTerminalOpen && (
+                <Card className="bg-slate-950 text-slate-100 font-mono text-xs border border-slate-800 p-4">
+                    <div className="flex justify-between items-center pb-2 mb-2 border-b border-slate-800">
+                        <div className="flex items-center gap-2">
+                            <TerminalIcon />
+                            <span className="font-bold text-slate-200">ESP32 Live Serial Terminal (115200 Baud)</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={() => setSerialLogs([])}
+                                className="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded bg-slate-800 text-[10px]"
+                            >
+                                Bersihkan Log
+                            </button>
+                            <button 
+                                onClick={() => setIsTerminalOpen(false)}
+                                className="text-slate-400 hover:text-slate-200 text-sm font-bold px-1.5"
+                            >
+                                &times;
+                            </button>
+                        </div>
+                    </div>
+                    <div className="h-44 overflow-y-auto space-y-1 pr-1 select-text">
+                        {serialLogs.length === 0 ? (
+                            <p className="text-slate-600 italic">Belum ada aktivitas data serial. Hubungkan ESP32 untuk memonitor paket real-time...</p>
+                        ) : (
+                            serialLogs.map(log => (
+                                <div key={log.id} className="flex items-start gap-2 leading-relaxed">
+                                    <span className="text-slate-500 text-[10px] flex-shrink-0">{log.timestamp}</span>
+                                    <span className={
+                                        log.type === 'tx' ? 'text-cyan-400' :
+                                        log.type === 'rx' ? 'text-emerald-400' :
+                                        log.type === 'err' ? 'text-red-400 font-bold' : 'text-amber-300'
+                                    }>
+                                        {log.text}
+                                    </span>
+                                </div>
+                            ))
+                        )}
+                        <div ref={terminalBottomRef} />
+                    </div>
+                </Card>
+            )}
+
+            {/* Master Stopwatch Display & Controls */}
+            <Card className="p-6">
+                <div className="text-center">
+                    <p className="text-7xl sm:text-8xl font-mono tracking-tighter text-primary font-bold">{formattedStopwatchTime}</p>
+                    
+                    <div className="flex flex-wrap justify-center items-center gap-3 mt-6">
+                        <Button 
+                            onClick={handleStartStop} 
+                            className={`px-8 py-3 text-lg flex items-center gap-2 ${isStopwatchRunning ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                        >
+                            {isStopwatchRunning ? <PauseIcon /> : <PlayIcon />}
+                            <span>{isStopwatchRunning ? 'Jeda Stopwatch' : 'Mulai (Start / S)'}</span>
+                        </Button>
+                        
+                        <Button 
+                            onClick={handleReset} 
+                            variant="secondary" 
+                            className="px-6 py-3 text-lg flex items-center gap-2"
+                        >
+                            <ResetIcon />
+                            <span>Reset (R)</span>
+                        </Button>
+                    </div>
+
+                    <p className="text-xs text-text-secondary mt-3">
+                        {isSerialConnected 
+                            ? '💡 Stopwatch otomatis tersinkronisasi saat tombol Start fisik (GPIO 4) ditekan pada hardware ESP32.'
+                            : '💡 Mode Stopwatch Manual aktif. Hubungkan ESP32 untuk pengoperasian sensor otomatis.'}
+                    </p>
+                </div>
+            </Card>
+
+            {/* Heats Navigation & Active Lane Controller */}
             {heats.length > 0 && currentHeat ? (
                 <>
-                <Card className="my-6">
-                    <div className="flex justify-between items-center mb-4">
-                        <Button onClick={() => setCurrentHeatIndex(p => p - 1)} disabled={currentHeatIndex === 0}>&larr; Seri Sebelumnya</Button>
-                        <h2 className="text-2xl font-bold text-center">Seri {currentHeat.heatNumber} dari {heats.length}</h2>
-                        <Button onClick={() => setCurrentHeatIndex(p => p + 1)} disabled={currentHeatIndex === heats.length - 1}>Seri Berikutnya &rarr;</Button>
+                <Card className="p-4">
+                    <div className="flex justify-between items-center">
+                        <Button 
+                            onClick={() => setCurrentHeatIndex(p => p - 1)} 
+                            disabled={currentHeatIndex === 0}
+                            variant="secondary"
+                            size="sm"
+                        >
+                            &larr; Seri Sebelumnya
+                        </Button>
+                        
+                        <div className="text-center">
+                            <h2 className="text-xl md:text-2xl font-bold">Seri {currentHeat.heatNumber} dari {heats.length}</h2>
+                            <p className="text-xs text-text-secondary font-mono">{currentHeat.assignments.length} Perenang Terjadwal</p>
+                        </div>
+
+                        <Button 
+                            onClick={() => setCurrentHeatIndex(p => p + 1)} 
+                            disabled={currentHeatIndex === heats.length - 1}
+                            variant="secondary"
+                            size="sm"
+                        >
+                            Seri Berikutnya &rarr;
+                        </Button>
                     </div>
                 </Card>
 
+                {/* Lanes Grid */}
                 <div className="space-y-3">
                     {currentHeat.assignments.map(({ lane, entry }) => {
                         const isDq = dqSwimmers.has(entry.swimmer.id);
                         const isNs = nsSwimmers.has(entry.swimmer.id);
                         const isDisabled = isDq || isNs;
-                         return (
-                         <div key={lane} className={`p-2 rounded-lg grid grid-cols-12 gap-x-3 items-center ${isDq ? 'bg-red-900/50' : isNs ? 'bg-gray-700/50' : 'bg-surface'} ${flashingLane === entry.swimmer.id ? 'flash-animation' : ''} border border-border`}>
-                            <div className="col-span-1 font-bold text-2xl text-center text-text-secondary">{lane}</div>
-                            <div className="col-span-11 sm:col-span-5">
-                                <p className="font-semibold text-lg text-text-primary">{entry.swimmer.name}</p>
-                                <p className="text-sm text-text-secondary">{entry.swimmer.club}</p>
+                        const isFlashing = flashingLane === entry.swimmer.id;
+
+                        const curTimeObj = times[entry.swimmer.id];
+                        const recordedMs = curTimeObj ? (parseInt(curTimeObj.min || '0') * 60000) + (parseInt(curTimeObj.sec || '0') * 1000) + parseInt(curTimeObj.ms || '0') : 0;
+                        const hasFinished = recordedMs > 0 && !isDisabled;
+
+                        return (
+                            <div 
+                                key={lane} 
+                                className={`p-3 rounded-xl grid grid-cols-12 gap-3 items-center border transition-all duration-300 ${
+                                    isDq ? 'bg-red-950/40 border-red-500/50' : 
+                                    isNs ? 'bg-slate-800/40 border-slate-700' : 
+                                    hasFinished ? 'bg-emerald-950/20 border-emerald-500/40' : 
+                                    'bg-surface border-border'
+                                } ${isFlashing ? 'ring-4 ring-emerald-400 bg-emerald-500/20 scale-[1.01]' : ''}`}
+                            >
+                                {/* Lane Number Badge */}
+                                <div className="col-span-2 sm:col-span-1 flex flex-col items-center justify-center">
+                                    <span className={`w-8 h-8 rounded-full flex items-center justify-center font-mono font-bold text-sm ${
+                                        hasFinished ? 'bg-emerald-500 text-white' : 
+                                        isDq ? 'bg-red-600 text-white' : 
+                                        isNs ? 'bg-slate-600 text-white' : 
+                                        'bg-background border border-border text-text-primary'
+                                    }`}>
+                                        {lane}
+                                    </span>
+                                    <span className="text-[9px] uppercase font-bold text-text-secondary mt-0.5">Lane {lane}</span>
+                                </div>
+
+                                {/* Swimmer Details */}
+                                <div className="col-span-10 sm:col-span-4 min-w-0">
+                                    <p className="font-bold text-sm sm:text-base text-text-primary uppercase truncate">{entry.swimmer.name}</p>
+                                    <div className="flex items-center gap-2 text-xs text-text-secondary">
+                                        <span className="uppercase truncate">{entry.swimmer.club}</span>
+                                        <span>•</span>
+                                        <span className="font-mono text-[10px]">Seed: {formatTime(entry.seedTime)}</span>
+                                    </div>
+                                    {hasFinished && (
+                                        <span className="inline-block mt-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                                            ✓ FINISHED: {formatTime(recordedMs)}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* High-Precision Time Inputs */}
+                                <div className="col-span-7 sm:col-span-4 flex items-center bg-background rounded-lg p-1.5 border border-border shadow-inner">
+                                    <div className="flex-1 min-w-0">
+                                        <Input 
+                                            aria-label="Menit" 
+                                            label="" 
+                                            id={`min-${entry.swimmer.id}`} 
+                                            type="number" 
+                                            min="0" 
+                                            value={times[entry.swimmer.id]?.min || '0'} 
+                                            onChange={e => handleTimeChange(entry.swimmer.id, 'min', e.target.value)} 
+                                            disabled={isDisabled} 
+                                            className="text-center font-mono font-bold text-sm"
+                                        />
+                                    </div>
+                                    <span className="px-1 font-bold text-text-secondary">:</span>
+                                    <div className="flex-1 min-w-0">
+                                        <Input 
+                                            aria-label="Detik" 
+                                            label="" 
+                                            id={`sec-${entry.swimmer.id}`} 
+                                            type="number" 
+                                            min="0" 
+                                            max="99" 
+                                            value={times[entry.swimmer.id]?.sec || '0'} 
+                                            onChange={e => handleTimeChange(entry.swimmer.id, 'sec', e.target.value)} 
+                                            disabled={isDisabled} 
+                                            className="text-center font-mono font-bold text-sm"
+                                        />
+                                    </div>
+                                    <span className="px-1 font-bold text-text-secondary">.</span>
+                                    <div className="flex-1 min-w-0">
+                                        <Input 
+                                            aria-label="Milidetik" 
+                                            label="" 
+                                            id={`ms-${entry.swimmer.id}`} 
+                                            type="number" 
+                                            min="0" 
+                                            max="999" 
+                                            value={times[entry.swimmer.id]?.ms || '0'} 
+                                            onChange={e => handleTimeChange(entry.swimmer.id, 'ms', e.target.value)} 
+                                            disabled={isDisabled} 
+                                            className="text-center font-mono font-bold text-sm"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Status and Actions (DQ, NS, TAP) */}
+                                <div className="col-span-5 sm:col-span-3 flex items-center justify-end gap-1.5">
+                                    <button 
+                                        type="button"
+                                        onClick={() => handleToggleNs(entry.swimmer.id)} 
+                                        className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${isNs ? 'bg-slate-500 text-white' : 'bg-slate-800/60 hover:bg-slate-700 text-slate-300'}`}
+                                        title="Tandai Tidak Hadir (No Show)"
+                                    >
+                                        NS
+                                    </button>
+                                    
+                                    <button 
+                                        type="button"
+                                        onClick={() => handleToggleDq(entry.swimmer.id, lane)} 
+                                        className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${isDq ? 'bg-red-600 text-white ring-2 ring-red-400' : 'bg-amber-900/60 hover:bg-amber-800 text-amber-300'}`}
+                                        title="Diskualifikasi perenang (Kirim sinyal DQ ke ESP32)"
+                                    >
+                                        DQ
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => handleTapLane(entry.swimmer.id)}
+                                        disabled={isDisabled}
+                                        className="h-9 px-3 rounded-lg flex items-center justify-center bg-primary hover:bg-primary-hover text-white disabled:bg-secondary disabled:cursor-not-allowed transition-all font-bold text-xs shadow"
+                                        aria-label={`Tap to record time for lane ${lane}`}
+                                        title="Catat Waktu Manual (Backup)"
+                                    >
+                                        TAP
+                                    </button>
+                                </div>
                             </div>
-                            <div className="col-span-8 sm:col-span-4 flex items-center bg-background rounded-md p-1 border border-border">
-                                <Input aria-label="Minutes" className="w-1/3" label="" id={`min-${entry.swimmer.id}`} type="number" min="0" value={times[entry.swimmer.id]?.min || '0'} onChange={e => handleTimeChange(entry.swimmer.id, 'min', e.target.value)} disabled={isDisabled} />
-                                <span className="px-1 text-text-secondary">:</span>
-                                <Input aria-label="Seconds" className="w-1/3" label="" id={`sec-${entry.swimmer.id}`} type="number" min="0" max="99" value={times[entry.swimmer.id]?.sec || '0'} onChange={e => handleTimeChange(entry.swimmer.id, 'sec', e.target.value)} disabled={isDisabled} />
-                                <span className="px-1 text-text-secondary">.</span>
-                                <Input aria-label="Milliseconds" className="w-1/3" label="" id={`ms-${entry.swimmer.id}`} type="number" min="0" max="999" value={times[entry.swimmer.id]?.ms || '0'} onChange={e => handleTimeChange(entry.swimmer.id, 'ms', e.target.value)} disabled={isDisabled} />
-                            </div>
-                            <div className="col-span-4 sm:col-span-2 flex items-center justify-end space-x-2">
-                                <Button onClick={() => handleToggleNs(entry.swimmer.id)} className={`px-4 py-2 ${isNs ? 'bg-slate-500' : 'bg-slate-700'}`}>NS</Button>
-                                <Button onClick={() => handleToggleDq(entry.swimmer.id)} className={`px-4 py-2 ${isDq ? 'bg-red-600' : 'bg-yellow-600'}`}>DQ</Button>
-                                <button
-                                    onClick={() => handleTapLane(entry.swimmer.id)}
-                                    className="w-12 h-12 rounded-full flex items-center justify-center bg-primary hover:bg-primary-hover text-white disabled:bg-secondary disabled:cursor-not-allowed transition-colors"
-                                    aria-label={`Tap to record time for lane ${lane}`}
-                                >
-                                    <span className="font-bold">TAP</span>
-                                </button>
-                            </div>
-                         </div>
-                         );
+                        );
                     })}
                 </div>
-                <div className="mt-8 pt-4 border-t border-border flex justify-end">
-                    <Button onClick={handleSaveResults} disabled={isSaving} className="px-6 py-3 text-lg">
-                       {isSaving ? <Spinner /> : 'Simpan Hasil Seri Ini'}
+
+                {/* Save Results Button */}
+                <div className="mt-8 pt-4 border-t border-border flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <p className="text-xs text-text-secondary">
+                        Simpan catatan waktu seri ini ke basis data sebelum berpindah ke seri berikutnya.
+                    </p>
+
+                    <Button onClick={handleSaveResults} disabled={isSaving} className="w-full sm:w-auto px-8 py-3 text-base font-bold">
+                        {isSaving ? <Spinner /> : 'Simpan Hasil Seri Ini'}
                     </Button>
                 </div>
                 </>
             ) : (
-                <Card className="mt-6 text-center py-10 text-text-secondary">
-                    Tidak ada atlet terdaftar untuk nomor lomba ini.
+                <Card className="mt-6 text-center py-12 text-text-secondary">
+                    <p className="text-lg font-semibold">Tidak ada atlet terdaftar untuk nomor lomba ini.</p>
+                    <p className="text-sm mt-1">Daftarkan peserta terlebih dahulu melalui menu Unggah Peserta atau Daftar Atlet.</p>
                 </Card>
             )}
+
+            {/* Modal: Remap Backup Pin on ESP32 */}
+            <Modal
+                isOpen={isMapModalOpen}
+                onClose={() => setIsMapModalOpen(false)}
+                title="Konfigurasi Pin Cadangan ESP32 (Emergency Remap)"
+            >
+                <div className="space-y-4">
+                    <p className="text-xs text-text-secondary">
+                        Jika tombol touchpad atau kabel sensor pada salah satu lintasan fisik mengalami kerusakan di tengah lomba, Anda dapat memetakan lintasan tersebut ke tombol cadangan (GPIO 16 / 17) tanpa mengubah firmware.
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-text-secondary mb-1">Lintasan Logis (Race)</label>
+                            <select
+                                value={mapLogicalLane}
+                                onChange={e => setMapLogicalLane(Number(e.target.value))}
+                                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:ring-2 focus:ring-primary"
+                            >
+                                {Array.from({ length: 10 }, (_, i) => i + 1).map(num => (
+                                    <option key={num} value={num}>Lintasan {num}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold uppercase text-text-secondary mb-1">Diarahkan ke Tombol Fisik</label>
+                            <select
+                                value={mapPhysicalPin}
+                                onChange={e => setMapPhysicalPin(Number(e.target.value))}
+                                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-text-primary focus:ring-2 focus:ring-primary"
+                            >
+                                <option value={1}>Tombol 1 (GPIO 13)</option>
+                                <option value={2}>Tombol 2 (GPIO 14)</option>
+                                <option value={3}>Tombol 3 (GPIO 27)</option>
+                                <option value={4}>Tombol 4 (GPIO 26)</option>
+                                <option value={5}>Tombol 5 (GPIO 25)</option>
+                                <option value={6}>Tombol 6 (GPIO 33)</option>
+                                <option value={7}>Tombol 7 (GPIO 32)</option>
+                                <option value={8}>Tombol 8 (GPIO 15)</option>
+                                <option value={9}>Tombol 9 (GPIO 16 - CADANGAN 1)</option>
+                                <option value={10}>Tombol 10 (GPIO 17 - CADANGAN 2)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-text-secondary">
+                        <span className="font-bold text-primary block mb-1">Perintah Serial:</span>
+                        <code className="font-mono text-text-primary">MAP:{mapLogicalLane - 1}:{mapPhysicalPin - 1}</code>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-3 border-t border-border">
+                        <Button variant="secondary" onClick={() => setIsMapModalOpen(false)}>Batal</Button>
+                        <Button variant="primary" onClick={handleSendPinMap}>Kirim Mapping ke ESP32</Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };

@@ -2,10 +2,12 @@
   "name": "react-aquatic-timing",
   "version": "1.2.0",
   "private": true,
+  "type": "module",
   "description": "Real-time Evaluation for Aquatic Competition & Timing.",
   "scripts": {
     "build": "esbuild index.tsx --bundle --outfile=dist/main.js --jsx=automatic && cp index.html dist/index.html && cp metadata.json dist/metadata.json",
-    "dev": "netlify dev"
+    "dev": "npm run build && node server.ts",
+    "start": "node server.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",

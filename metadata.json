@@ -1,8 +1,11 @@
 {
   "name": "R.E.A.C.T 33",
-  "description": "Real-time Evaluation for Aquatic Competition \u0026 Timing.",
+  "description": "Real-time Evaluation for Aquatic Competition & Timing.",
   "requestFramePermissions": [
     "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ],
   "prompt": ""
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { SwimEvent, Swimmer, Result, Heat, Entry, CompetitionInfo } from '../types';
-import { getEventById, addOrUpdateEventResults, getSwimmers } from '../services/databaseService';
+import { getEventById, addOrUpdateEventResults } from '../services/databaseService';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Spinner } from './ui/Spinner';
@@ -19,8 +19,6 @@ interface LiveTimingViewProps {
   swimmers: Swimmer[];
   competitionInfo: CompetitionInfo | null;
   onStatusChange?: (status: ArduinoStatus) => void;
-  events?: SwimEvent[];
-  onSelectEvent?: (eventId: string) => void;
 }
 
 const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
@@ -30,7 +28,7 @@ const UsbIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5
 const TerminalIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
 const CogIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066 2.573c-.94-1.543.826 3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
-export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack, onDataUpdate, swimmers, competitionInfo, onStatusChange, events = [], onSelectEvent }) => {
+export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack, onDataUpdate, swimmers, competitionInfo, onStatusChange }) => {
     const {
         arduinoStatus,
         isSerialConnected,
@@ -62,8 +60,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         handleTapLane,
         handleToggleDq,
         handleToggleNs,
-        handleTimeChange,
-        goToHeat
+        handleTimeChange
     } = useSerialTiming();
 
     const [event, setEvent] = useState<SwimEvent | null>(null);
@@ -94,105 +91,54 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
 
     const fetchAndSetupEvent = useCallback(async () => {
         setIsLoading(true);
-        try {
-            const eventData = await getEventById(eventId);
-            if (eventData) {
-                setEvent(eventData);
+        const eventData = await getEventById(eventId);
+        if (eventData) {
+            setEvent(eventData);
+            const detailedEntries: Entry[] = eventData.entries
+                .map(entry => ({...entry, swimmer: swimmers.find(s => s.id === entry.swimmerId)!}))
+                .filter(e => e.swimmer);
+            
+            const lanes = competitionInfo?.numberOfLanes || 8;
+            setActiveLanesSetting(lanes >= 10 ? 10 : 8);
 
-                // Ensure swimmer data is available even if initial prop was empty
-                let allSwimmers = swimmers;
-                if (!allSwimmers || allSwimmers.length === 0) {
-                    try {
-                        allSwimmers = await getSwimmers();
-                    } catch (err) {
-                        console.warn("Could not fetch swimmers directly:", err);
-                        allSwimmers = [];
-                    }
-                }
+            const generated = eventData.lanesLocked
+                ? reconstructLockedHeats(detailedEntries)
+                : generateHeats(detailedEntries, lanes);
 
-                const detailedEntries: Entry[] = eventData.entries
-                    .map(entry => ({...entry, swimmer: allSwimmers.find(s => s.id === entry.swimmerId)!}))
-                    .filter(e => e.swimmer);
-                
-                const lanes = competitionInfo?.numberOfLanes || 8;
-                setActiveLanesSetting(lanes >= 10 ? 10 : 8);
+            // Only override if event changed or heats are empty
+            if (activeEventId !== eventId || activeHeats.length === 0) {
+                setActiveEventId(eventId);
+                setActiveHeats(generated);
+                setActiveHeatIndex(0);
 
-                let generated = eventData.lanesLocked
-                    ? reconstructLockedHeats(detailedEntries)
-                    : generateHeats(detailedEntries, lanes);
+                const initialTimes: Record<string, { min: string, sec: string, ms: string }> = {};
+                const initialDq = new Set<string>();
+                const initialNs = new Set<string>();
 
-                // If no entries are registered, create a standby test heat so the user can test ESP32 touchpads & timer
-                if (generated.length === 0) {
-                    const totalLanes = lanes >= 10 ? 10 : 8;
-                    generated = [{
-                        heatNumber: 1,
-                        assignments: Array.from({ length: totalLanes }, (_, i) => ({
-                            lane: i + 1,
-                            entry: {
-                                swimmerId: `test-lane-${i + 1}`,
-                                seedTime: 0,
-                                heatNumber: 1,
-                                laneNumber: i + 1,
-                                swimmer: {
-                                    id: `test-lane-${i + 1}`,
-                                    name: `Lintasan ${i + 1} (Mode Siap Sensor)`,
-                                    club: 'ESP32 Touchpad Test',
-                                    birthDate: '2000-01-01',
-                                    gender: eventData.gender,
-                                    photoUrl: ''
-                                }
-                            }
-                        }))
-                    }];
-                }
-
-                // Only override if event changed or heats are empty
-                if (activeEventId !== eventId || activeHeats.length === 0) {
-                    setActiveEventId(eventId);
-                    setActiveHeats(generated);
-                    setActiveHeatIndex(0);
-
-                    const initialTimes: Record<string, { min: string, sec: string, ms: string }> = {};
-                    const initialDq = new Set<string>();
-                    const initialNs = new Set<string>();
-
-                    detailedEntries.forEach(entry => { 
-                        const existingResult = eventData.results.find(r => r.swimmerId === entry.swimmerId);
-                        if (existingResult) {
-                            if (existingResult.time === -1) {
-                                initialDq.add(entry.swimmerId);
-                                initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
-                            } else if (existingResult.time === -2) {
-                                initialNs.add(entry.swimmerId);
-                                initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
-                            } else if (existingResult.time < 0) {
-                                initialDq.add(entry.swimmerId);
-                                initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
-                            } else {
-                                initialTimes[entry.swimmerId] = parseMsToTimeParts(existingResult.time);
-                            }
-                        } else {
+                detailedEntries.forEach(entry => { 
+                    const existingResult = eventData.results.find(r => r.swimmerId === entry.swimmerId);
+                    if (existingResult) {
+                        if (existingResult.time === -1) {
+                            initialDq.add(entry.swimmerId);
                             initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
+                        } else if (existingResult.time === -2) {
+                            initialNs.add(entry.swimmerId);
+                            initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
+                        } else if (existingResult.time < 0) {
+                            initialDq.add(entry.swimmerId);
+                            initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
+                        } else {
+                            initialTimes[entry.swimmerId] = parseMsToTimeParts(existingResult.time);
                         }
-                    });
+                    } else {
+                        initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
+                    }
+                });
 
-                    // Also initialize placeholder test lanes if any
-                    generated.forEach(heat => {
-                        heat.assignments.forEach(({ entry }) => {
-                            if (!initialTimes[entry.swimmer.id]) {
-                                initialTimes[entry.swimmer.id] = { min: '0', sec: '0', ms: '000'};
-                            }
-                        });
-                    });
-
-                    setTimes(initialTimes);
-                }
+                setTimes(initialTimes);
             }
-        } catch (error) {
-            console.error("Error setting up event timing:", error);
-        } finally {
-            setIsLoading(false);
         }
+        setIsLoading(false);
     }, [eventId, swimmers, competitionInfo, activeEventId, activeHeats.length, setActiveEventId, setActiveHeats, setActiveHeatIndex, setActiveLanesSetting, setTimes]);
     
     useEffect(() => {
@@ -239,7 +185,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         }
     };
 
-    const handleSaveResults = async (autoAdvance: boolean = false) => {
+    const handleSaveResults = async () => {
         const currentHeat = activeHeats[activeHeatIndex];
         if (!currentHeat) return;
         
@@ -264,14 +210,9 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 });
             
             await addOrUpdateEventResults(eventId, resultsToSave);
-            addNotification(`Hasil Seri ${currentHeat.heatNumber} berhasil disimpan.`, 'success');
+            addNotification(`Hasil untuk Seri ${currentHeat.heatNumber} berhasil disimpan.`, 'info');
             onDataUpdate();
             await fetchAndSetupEvent();
-
-            // If requested to proceed to next heat
-            if (autoAdvance && activeHeatIndex < activeHeats.length - 1) {
-                goToHeat(activeHeatIndex + 1);
-            }
         } catch (error: any) {
             addNotification(`Gagal menyimpan hasil: ${error.message}`, 'error');
         } finally {
@@ -295,26 +236,9 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         <div className="space-y-6">
             {/* Header with Navigation & Title */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <Button onClick={onBack} variant="secondary" size="sm">&larr; Kembali ke Nomor Lomba</Button>
-                        {events.length > 1 && onSelectEvent && (
-                            <select
-                                aria-label="Ganti Nomor Lomba"
-                                value={eventId}
-                                onChange={e => onSelectEvent(e.target.value)}
-                                className="bg-surface border border-border text-xs rounded-lg px-2.5 py-1.5 font-medium text-text-primary focus:ring-1 focus:ring-primary max-w-xs truncate"
-                                title="Pilih nomor lomba lain"
-                            >
-                                {events.map(ev => (
-                                    <option key={ev.id} value={ev.id}>
-                                        {formatEventName(ev)} ({ev.entries.length} atlet)
-                                    </option>
-                                ))}
-                            </select>
-                        )}
-                    </div>
-                    <h1 className="text-2xl md:text-3xl font-bold text-text-primary pt-1">{formatEventName(event)}</h1>
+                <div>
+                    <Button onClick={onBack} variant="secondary" className="mb-2">&larr; Kembali ke Detail Lomba</Button>
+                    <h1 className="text-2xl md:text-3xl font-bold text-text-primary">{formatEventName(event)}</h1>
                     <p className="text-xs md:text-sm text-text-secondary">Antarmuka Kontrol Timing Otomatis &amp; Sensor ESP32 (8 / 10 Lintasan)</p>
                 </div>
 
@@ -514,7 +438,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 <Card className="p-4">
                     <div className="flex justify-between items-center">
                         <Button 
-                            onClick={() => goToHeat(activeHeatIndex - 1)} 
+                            onClick={() => setActiveHeatIndex(p => Math.max(0, p - 1))} 
                             disabled={activeHeatIndex === 0}
                             variant="secondary"
                             size="sm"
@@ -528,7 +452,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                         </div>
 
                         <Button 
-                            onClick={() => goToHeat(activeHeatIndex + 1)} 
+                            onClick={() => setActiveHeatIndex(p => Math.min(activeHeats.length - 1, p + 1))} 
                             disabled={activeHeatIndex === activeHeats.length - 1}
                             variant="secondary"
                             size="sm"
@@ -674,29 +598,12 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 {/* Save Results Button */}
                 <div className="mt-8 pt-4 border-t border-border flex flex-col sm:flex-row justify-between items-center gap-4">
                     <p className="text-xs text-text-secondary">
-                        Simpan catatan waktu seri ini ke basis data. Memilih lanjut ke seri berikutnya akan otomatis mereset timer ke 00:00.00.
+                        Simpan catatan waktu seri ini ke basis data sebelum berpindah ke seri berikutnya.
                     </p>
 
-                    <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-                        <Button 
-                            onClick={() => handleSaveResults(false)} 
-                            disabled={isSaving} 
-                            variant="secondary"
-                            className="w-full sm:w-auto px-5 py-3 text-sm font-bold"
-                        >
-                            {isSaving ? <Spinner /> : 'Simpan Hasil Seri Ini'}
-                        </Button>
-
-                        {activeHeatIndex < activeHeats.length - 1 && (
-                            <Button 
-                                onClick={() => handleSaveResults(true)} 
-                                disabled={isSaving} 
-                                className="w-full sm:w-auto px-6 py-3 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow"
-                            >
-                                {isSaving ? <Spinner /> : `Simpan & Lanjut ke Seri ${activeHeats[activeHeatIndex + 1]?.heatNumber || (activeHeatIndex + 2)} (Reset Timer) ➔`}
-                            </Button>
-                        )}
-                    </div>
+                    <Button onClick={handleSaveResults} disabled={isSaving} className="w-full sm:w-auto px-8 py-3 text-base font-bold">
+                        {isSaving ? <Spinner /> : 'Simpan Hasil Seri Ini'}
+                    </Button>
                 </div>
                 </>
             ) : (

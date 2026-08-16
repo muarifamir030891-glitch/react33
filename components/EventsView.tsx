@@ -535,8 +535,9 @@ export const EventsView: React.FC<EventsViewProps> = ({ events, isLoading, onSel
                                         </Button>
                                         <Button 
                                             onClick={() => onStartTiming(event.id)} 
-                                            title="Buka antarmuka Live Timing & ESP32"
-                                            className="py-2 px-4 flex items-center relative bg-emerald-600 hover:bg-emerald-700 text-white"
+                                            disabled={event.entries.length === 0}
+                                            title={event.entries.length === 0 ? "Tambah peserta untuk memulai timing" : "Mulai timing lomba"}
+                                            className="py-2 px-4 flex items-center relative"
                                         >
                                             {needsTiming && (
                                                 <span className="absolute top-0 right-0 -mr-1 -mt-1 flex h-3 w-3">

@@ -56,7 +56,6 @@ interface SerialTimingContextType {
   handleToggleDq: (swimmerId: string, laneNumber: number) => void;
   handleToggleNs: (swimmerId: string) => void;
   handleTimeChange: (swimmerId: string, part: 'min' | 'sec' | 'ms', value: string) => void;
-  goToHeat: (newIndex: number) => void;
 }
 
 const SerialTimingContext = createContext<SerialTimingContextType | undefined>(undefined);
@@ -593,37 +592,6 @@ export const SerialTimingProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }));
   }, []);
 
-  const goToHeat = useCallback((newIndex: number) => {
-    if (newIndex < 0 || newIndex >= activeHeatsRef.current.length) return;
-
-    // 1. Stop and reset stopwatch animation
-    if (animationFrameId.current) {
-      cancelAnimationFrame(animationFrameId.current);
-      animationFrameId.current = undefined;
-    }
-    setIsStopwatchRunning(false);
-    isStopwatchRunningRef.current = false;
-    setStopwatchTime(0);
-    stopwatchTimeRef.current = 0;
-    pausedTimeRef.current = 0;
-    startTimeRef.current = 0;
-
-    // 2. Switch heat index
-    setActiveHeatIndex(newIndex);
-    activeHeatIndexRef.current = newIndex;
-    const targetHeat = activeHeatsRef.current[newIndex];
-    currentHeatRef.current = targetHeat || null;
-
-    // 3. Reset hardware timer on ESP32
-    if (isSerialConnected) {
-      sendSerialCommand("R");
-    }
-
-    if (targetHeat) {
-      addNotification(`Switched ke Seri ${targetHeat.heatNumber}. Timer & ESP32 otomatis di-reset ke 00:00.00.`, "info", 2500);
-    }
-  }, [isSerialConnected, sendSerialCommand, addNotification]);
-
   return (
     <SerialTimingContext.Provider
       value={{
@@ -662,8 +630,7 @@ export const SerialTimingProvider: React.FC<{ children: React.ReactNode }> = ({ 
         handleTapLane,
         handleToggleDq,
         handleToggleNs,
-        handleTimeChange,
-        goToHeat
+        handleTimeChange
       }}
     >
       {children}

@@ -58,7 +58,8 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
     const [selectedBaudRate, setSelectedBaudRate] = useState<number>(115200);
     const [activeLanesSetting, setActiveLanesSetting] = useState<number>(8);
     const portRef = useRef<any>(null);
-    const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
+    const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+    const isReadingRef = useRef<boolean>(false);
     const keepReadingRef = useRef<boolean>(false);
 
     // Serial Terminal Logs
@@ -195,47 +196,85 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
             addNotification("ESP32 belum terhubung via USB.", "error");
             return;
         }
+        let writer: any = null;
         try {
             const textEncoder = new TextEncoder();
-            const writer = portRef.current.writable.getWriter();
+            writer = portRef.current.writable.getWriter();
             await writer.write(textEncoder.encode(command + "\n"));
-            writer.releaseLock();
             appendLog(`TX -> ${command}`, 'tx');
         } catch (err: any) {
             console.error("Gagal mengirim data serial ke ESP32:", err);
             appendLog(`ERR TX [${command}]: ${err.message}`, 'err');
             addNotification(`Gagal mengirim ke ESP32: ${err.message}`, "error");
+        } finally {
+            if (writer) {
+                try {
+                    writer.releaseLock();
+                } catch (e) {
+                    // Ignore releaseLock if already released
+                }
+            }
         }
     };
 
     // --- SERIAL DISCONNECT LOGIC ---
     const disconnectSerial = useCallback(async () => {
         keepReadingRef.current = false;
+        
         if (readerRef.current) {
             try {
                 await readerRef.current.cancel();
             } catch (error) {
                 console.warn("Error cancelling reader:", error);
-            } finally {
-                readerRef.current = null;
             }
+        }
+
+        // Wait slightly for read loop to cleanly release locks
+        let waitCount = 0;
+        while (isReadingRef.current && waitCount < 10) {
+            await new Promise(resolve => setTimeout(resolve, 50));
+            waitCount++;
+        }
+
+        if (portRef.current) {
+            try {
+                if (portRef.current.readable || portRef.current.writable) {
+                    await portRef.current.close();
+                }
+            } catch (error) {
+                console.warn("Error closing port:", error);
+            }
+        }
+
+        setIsSerialConnected(false);
+        appendLog("Sistem Serial ESP32 Terputus.", "sys");
+        addNotification("ESP32 terputus.", "info");
+        onStatusChange('disconnected');
+    }, [addNotification, onStatusChange, appendLog]);
+
+    // --- SERIAL FORCE RESET PORT ---
+    const forceResetPort = async () => {
+        keepReadingRef.current = false;
+        if (readerRef.current) {
+            try {
+                await readerRef.current.cancel();
+            } catch (e) {}
+            try {
+                readerRef.current.releaseLock();
+            } catch (e) {}
+            readerRef.current = null;
         }
         if (portRef.current) {
             try {
                 await portRef.current.close();
-            } catch (error) {
-                console.warn("Error closing port:", error);
-            } finally {
-                portRef.current = null;
-            }
+            } catch (e) {}
+            portRef.current = null;
         }
-        if (isSerialConnected) {
-            setIsSerialConnected(false);
-            appendLog("Sistem Serial ESP32 Terputus.", "sys");
-            addNotification("ESP32 terputus.", "info");
-            onStatusChange('disconnected');
-        }
-    }, [isSerialConnected, addNotification, onStatusChange, appendLog]);
+        setIsSerialConnected(false);
+        appendLog("Port Serial di-reset & dilepaskan paksa.", "sys");
+        addNotification("Port USB berhasil di-reset. Silakan klik Hubungkan ESP32 kembali.", "info");
+        onStatusChange('disconnected');
+    };
 
     // --- SERIAL CONNECT LOGIC ---
     const connectSerial = async () => {
@@ -251,44 +290,81 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         }
 
         try {
-            const port = await (navigator as any).serial.requestPort();
-            await port.open({ baudRate: selectedBaudRate });
-            portRef.current = port;
+            let port = portRef.current;
+            if (!port) {
+                port = await (navigator as any).serial.requestPort();
+                portRef.current = port;
+            }
+
+            // Check if port is already open or needs open()
+            const isAlreadyOpen = Boolean(port.readable || port.writable);
+            if (!isAlreadyOpen) {
+                try {
+                    await port.open({ baudRate: selectedBaudRate });
+                } catch (openErr: any) {
+                    // Handle "The port is already open" gracefully
+                    if (openErr.name === 'InvalidStateError' || openErr.message?.includes('already open')) {
+                        console.warn("Port is already open in browser, reusing connection.");
+                    } else {
+                        throw openErr;
+                    }
+                }
+            }
+
             setIsSerialConnected(true);
             keepReadingRef.current = true;
+            isReadingRef.current = true;
             appendLog(`ESP32 Terhubung pada Baud Rate ${selectedBaudRate} bps. Menunggu sinyal...`, 'sys');
             addNotification(`ESP32 terhubung (${selectedBaudRate} baud). Sistem siap!`, "success");
             onStatusChange('connected');
 
-            // Send lane configuration to ESP32 on startup
+            // Send initial lane configuration to ESP32
             setTimeout(() => {
                 sendSerialCommand(`LANES:${activeLanesSetting}`);
             }, 300);
 
-            const textDecoder = new TextDecoderStream();
-            port.readable.pipeTo(textDecoder.writable);
-            const reader = textDecoder.readable.getReader();
-            readerRef.current = reader;
-
+            const decoder = new TextDecoder();
             let buffer = "";
 
-            while (keepReadingRef.current) {
-                const { value, done } = await reader.read();
-                if (done) {
-                    reader.releaseLock();
-                    break;
-                }
-                
-                buffer += value;
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || ""; // Keep incomplete line in buffer
+            while (keepReadingRef.current && portRef.current && portRef.current.readable) {
+                let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+                try {
+                    reader = portRef.current.readable.getReader();
+                    readerRef.current = reader;
 
-                for (const line of lines) {
-                    const cleanLine = line.trim();
-                    if (cleanLine.length > 0) {
-                        appendLog(`RX <- ${cleanLine}`, 'rx');
-                        processSerialData(cleanLine);
+                    while (keepReadingRef.current) {
+                        const { value, done } = await reader.read();
+                        if (done) {
+                            break;
+                        }
+                        if (value) {
+                            buffer += decoder.decode(value, { stream: true });
+                            const lines = buffer.split("\n");
+                            buffer = lines.pop() || ""; // Keep incomplete chunk in buffer
+
+                            for (const line of lines) {
+                                const cleanLine = line.trim();
+                                if (cleanLine.length > 0) {
+                                    appendLog(`RX <- ${cleanLine}`, 'rx');
+                                    processSerialData(cleanLine);
+                                }
+                            }
+                        }
                     }
+                } catch (readErr: any) {
+                    if (keepReadingRef.current) {
+                        console.warn("Serial read error:", readErr);
+                    }
+                    break;
+                } finally {
+                    if (reader) {
+                        try {
+                            reader.releaseLock();
+                        } catch (e) {
+                            // Ignored
+                        }
+                    }
+                    readerRef.current = null;
                 }
             }
         } catch (error: any) {
@@ -299,6 +375,8 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 onStatusChange('error');
             }
             setIsSerialConnected(false);
+        } finally {
+            isReadingRef.current = false;
         }
     };
 
@@ -443,10 +521,15 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         };
     }, [disconnectSerial]);
 
-    const handleStartStop = () => {
-        if (isStopwatchRunning) {
-            pausedTimeRef.current = stopwatchTime;
+    const handleStartStop = useCallback(() => {
+        if (isStopwatchRunningRef.current) {
+            if (animationFrameId.current) {
+                cancelAnimationFrame(animationFrameId.current);
+                animationFrameId.current = undefined;
+            }
+            pausedTimeRef.current = stopwatchTimeRef.current;
             setIsStopwatchRunning(false);
+            isStopwatchRunningRef.current = false;
         } else {
             // Trigger start in web app & send start to ESP32 if connected
             if (isSerialConnected) {
@@ -454,18 +537,77 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
             }
             startTimeRef.current = performance.now();
             setIsStopwatchRunning(true);
+            isStopwatchRunningRef.current = true;
         }
-    };
+    }, [isSerialConnected]);
 
-    const handleReset = () => {
+    const handleReset = useCallback((clearHeatTimes: boolean = false) => {
+        // 1. Cancel animation frame directly and synchronously
+        if (animationFrameId.current) {
+            cancelAnimationFrame(animationFrameId.current);
+            animationFrameId.current = undefined;
+        }
+
+        // 2. Reset stopwatch refs and states synchronously
         setIsStopwatchRunning(false);
+        isStopwatchRunningRef.current = false;
         setStopwatchTime(0);
+        stopwatchTimeRef.current = 0;
         pausedTimeRef.current = 0;
         startTimeRef.current = 0;
+
+        // 3. Clear times for the current heat so lanes are ready for a new race
+        const curHeat = currentHeatRef.current;
+        if (curHeat) {
+            setTimes(prev => {
+                const updated = { ...prev };
+                curHeat.assignments.forEach(({ entry }) => {
+                    updated[entry.swimmer.id] = { min: '0', sec: '0', ms: '000' };
+                });
+                return updated;
+            });
+            setDqSwimmers(prev => {
+                const updated = new Set(prev);
+                curHeat.assignments.forEach(({ entry }) => updated.delete(entry.swimmer.id));
+                return updated;
+            });
+            setNsSwimmers(prev => {
+                const updated = new Set(prev);
+                curHeat.assignments.forEach(({ entry }) => updated.delete(entry.swimmer.id));
+                return updated;
+            });
+        }
+
+        // 4. Send "R" to ESP32 if connected
         if (isSerialConnected) {
             sendSerialCommand("R");
         }
-    };
+
+        addNotification("🔄 Stopwatch dan catatan waktu seri berhasil di-reset.", "info", 2000);
+    }, [isSerialConnected, addNotification]);
+
+    // Keyboard Shortcuts (R for reset, S/Space for start-pause)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT')) {
+                return;
+            }
+
+            if (e.key === 'r' || e.key === 'R') {
+                e.preventDefault();
+                handleReset();
+            } else if (e.key === 's' || e.key === 'S' || e.code === 'Space') {
+                e.preventDefault();
+                handleStartStop();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [handleStartStop, handleReset]);
 
     const handleForceEndRace = () => {
         if (isSerialConnected) {
@@ -647,6 +789,16 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                     >
                         <TerminalIcon />
                         <span>Log Serial</span>
+                    </Button>
+
+                    <Button
+                        onClick={forceResetPort}
+                        variant="secondary"
+                        size="sm"
+                        className="text-xs py-2 px-2 text-text-secondary hover:text-red-400"
+                        title="Lepas dan reset status port USB Serial jika terjadi kendala / port terkunci"
+                    >
+                        🔄 Reset Port
                     </Button>
                 </div>
             </div>

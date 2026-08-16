@@ -458,14 +458,28 @@ export const EventsView: React.FC<EventsViewProps> = ({ events, isLoading, onSel
                 </div>
             </div>
             <div>
-                <Input
-                label="Cari Nomor Lomba"
-                id="event-search"
-                type="text"
-                placeholder="Cth: 50m Gaya Bebas KU 1-2 Putra..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                />
+                <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                        <Input
+                        label="Cari Nomor Lomba"
+                        id="event-search"
+                        type="text"
+                        placeholder="Cth: 50m Gaya Bebas KU 1-2 Putra..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                    {(searchQuery || selectedSession !== 0) && (
+                        <Button 
+                            variant="secondary" 
+                            onClick={() => { setSearchQuery(''); setSelectedSession(0); }}
+                            className="whitespace-nowrap"
+                            title="Reset filter sesi dan pencarian"
+                        >
+                            Reset Filter
+                        </Button>
+                    )}
+                </div>
             </div>
         </div>
       </Card>

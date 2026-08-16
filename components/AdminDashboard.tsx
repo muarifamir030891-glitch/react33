@@ -5,6 +5,7 @@ import { Card } from './ui/Card';
 import { Spinner } from './ui/Spinner';
 import { Button } from './ui/Button';
 import { useTheme } from '../contexts/ThemeContext';
+import { useEsp32 } from '../contexts/Esp32Context';
 
 // --- ICONS ---
 const UsersIcon = () => (
@@ -59,6 +60,7 @@ declare var Chart: any;
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ swimmers, events, competitionInfo, isLoading, navigateTo }) => {
   const { theme } = useTheme();
+  const { isConnected: isEspConnected, status: espStatus, baudRate, activeLanes } = useEsp32();
   const chartRef = useRef<HTMLCanvasElement | null>(null);
   const chartInstance = useRef<any>(null); 
   const [sortConfig, setSortConfig] = useState<{ key: SortableKey; direction: 'asc' | 'desc' }>({ key: 'total', direction: 'desc' });
@@ -239,8 +241,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ swimmers, events
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold">Dashboard Admin</h1>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-text-primary">Dashboard Admin</h1>
+          <p className="text-sm text-text-secondary">Ringkasan kompetisi dan status sistem</p>
+        </div>
+
+        <button
+          onClick={() => navigateTo(View.ESP32_SETTINGS)}
+          className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold border transition-all ${
+            isEspConnected
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20'
+              : 'bg-surface border-border text-text-secondary hover:text-text-primary hover:border-primary'
+          }`}
+          title="Buka menu koneksi dan pengaturan ESP32"
+        >
+          <span className={`w-2.5 h-2.5 rounded-full ${isEspConnected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-400'}`} />
+          <span>{isEspConnected ? `ESP32 Terhubung (${activeLanes} Lintasan • ${baudRate} Baud)` : 'Hubungkan ESP32 USB'}</span>
+          <span className="text-[11px] opacity-70">➔</span>
+        </button>
       </div>
 
       {isLoading ? (

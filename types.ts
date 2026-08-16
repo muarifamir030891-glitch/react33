@@ -123,6 +123,7 @@ export enum View {
   SCANNER, // NEW
   RECORD_MANAGEMENT,
   REGISTRATION_LOGS,
+  ESP32_SETTINGS, // Menu dedicated for ESP32 Web Serial Connection
 }
 
 export interface User {

@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { NotificationProvider } from './components/ui/NotificationManager';
+import { Esp32Provider } from './contexts/Esp32Context';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -15,7 +16,9 @@ const root = createRoot(rootElement);
 root.render(
   <ThemeProvider>
     <NotificationProvider>
-      <App />
+      <Esp32Provider>
+        <App />
+      </Esp32Provider>
     </NotificationProvider>
   </ThemeProvider>
 );

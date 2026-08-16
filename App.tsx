@@ -27,8 +27,6 @@ import { supabase } from './services/supabaseClient';
 import { Spinner } from './components/ui/Spinner';
 import { ConnectionStatusIndicator } from './components/ui/ConnectionStatusIndicator';
 import { NotificationContainer } from './components/ui/NotificationManager';
-import { useSerialTiming } from './contexts/SerialTimingContext';
-import { formatTime } from './constants';
 
 type ArduinoStatus = 'connected' | 'disconnected' | 'error' | 'unavailable';
 
@@ -90,16 +88,7 @@ const App: React.FC = () => {
   
   const [internetStatus, setInternetStatus] = useState<'online' | 'offline'>('online');
   const [dbStatus, setDbStatus] = useState<'checking' | 'connected' | 'error' | 'offline' | 'reconnecting'>('checking');
-  
-  const {
-    arduinoStatus,
-    isSerialConnected,
-    stopwatchTime,
-    isStopwatchRunning,
-    activeEventId,
-    activeHeatIndex,
-    activeHeats
-  } = useSerialTiming();
+  const [arduinoStatus, setArduinoStatus] = useState<ArduinoStatus>('unavailable');
 
   const refreshData = useCallback(async () => {
     setIsDataLoading(true);
@@ -418,40 +407,6 @@ const App: React.FC = () => {
         </div>
       </aside>
       <main className="flex-1 flex flex-col overflow-y-auto">
-        {/* Persistent background ESP32 status banner when navigating other pages */}
-        {isSerialConnected && currentView !== View.LIVE_TIMING && (
-          <div className="bg-emerald-950/80 border-b border-emerald-500/40 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs text-emerald-200 sticky top-0 z-30 backdrop-blur-sm no-print">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0"></span>
-              <span className="font-bold text-white">ESP32 Aktif di Latar Belakang:</span>
-              <span className="font-mono text-sm font-bold text-emerald-300 bg-emerald-900/60 px-2 py-0.5 rounded border border-emerald-700/50">
-                {formatTime(stopwatchTime)}
-              </span>
-              {activeHeats.length > 0 && (
-                <span className="px-2 py-0.5 rounded bg-emerald-900/40 border border-emerald-700/40 text-[11px]">
-                  Seri {activeHeatIndex + 1} dari {activeHeats.length}
-                </span>
-              )}
-              <span className="text-emerald-400/80 hidden lg:inline">• Sensor touchpad tetap aktif mencatat waktu finish secara otomatis</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={() => {
-                  if (activeEventId) {
-                    setSelectedEventId(activeEventId);
-                    setCurrentView(View.LIVE_TIMING);
-                  } else {
-                    setCurrentView(View.RACES);
-                  }
-                }}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-1 font-bold shadow"
-              >
-                ⏱️ Buka Live Timing
-              </Button>
-            </div>
-          </div>
-        )}
         <header className="md:hidden flex items-center p-4 border-b border-border bg-surface/80 backdrop-blur-sm sticky top-0 z-20 no-print">
             <button onClick={() => setIsMenuOpen(true)} className="p-2 rounded-md text-text-secondary hover:bg-background focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary" aria-label="Open menu"><HamburgerIcon /></button>
             <h1 className="text-lg font-bold text-primary ml-4 truncate">{competitionInfo?.eventName.split('\n')[0] || "R.E.A.C.T"}</h1>

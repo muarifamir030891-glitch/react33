@@ -60,17 +60,6 @@ export const Esp32Provider: React.FC<{ children: React.ReactNode }> = ({ childre
   const keepReadingRef = useRef<boolean>(false);
   const listenersRef = useRef<Set<SerialListener>>(new Set());
 
-  // Check Web Serial API support
-  useEffect(() => {
-    if (typeof navigator !== 'undefined' && 'serial' in navigator) {
-      setIsSupported(true);
-      setStatus(prev => (prev === 'unavailable' ? 'disconnected' : prev));
-    } else {
-      setIsSupported(false);
-      setStatus('unavailable');
-    }
-  }, []);
-
   const appendLog = useCallback((text: string, type: 'tx' | 'rx' | 'sys' | 'err' | 'data') => {
     const now = new Date();
     const timeStr =
@@ -256,6 +245,7 @@ export const Esp32Provider: React.FC<{ children: React.ReactNode }> = ({ childre
       portRef.current = null;
     }
 
+    localStorage.removeItem('esp32_autoconnect');
     setStatus('disconnected');
     appendLog('Sistem Serial ESP32 Terputus.', 'sys');
   }, [appendLog]);
@@ -277,33 +267,15 @@ export const Esp32Provider: React.FC<{ children: React.ReactNode }> = ({ childre
       } catch {}
       portRef.current = null;
     }
+    localStorage.removeItem('esp32_autoconnect');
     setStatus('disconnected');
     appendLog('Port Serial di-reset & dilepaskan paksa.', 'sys');
   }, [appendLog]);
 
-  const connect = useCallback(
-    async (customBaud?: number): Promise<boolean> => {
-      const selectedBaud = customBaud || baudRate;
-
-      if (typeof navigator === 'undefined' || !('serial' in navigator)) {
-        setStatus('unavailable');
-        appendLog('Web Serial API tidak didukung pada browser ini. Harap gunakan Google Chrome atau Edge.', 'err');
-        return false;
-      }
-
-      // If already connected, do not re-request port
-      if (status === 'connected' && portRef.current && portRef.current.readable) {
-        appendLog(`ESP32 sudah dalam keadaan terhubung (${selectedBaud} baud).`, 'sys');
-        return true;
-      }
-
+  const startPortConnection = useCallback(
+    async (port: any, selectedBaud: number): Promise<boolean> => {
       try {
-        let port = portRef.current;
-        if (!port) {
-          port = await (navigator as any).serial.requestPort();
-          portRef.current = port;
-        }
-
+        portRef.current = port;
         const isAlreadyOpen = Boolean(port.readable || port.writable);
         if (!isAlreadyOpen) {
           try {
@@ -318,6 +290,8 @@ export const Esp32Provider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
 
         setStatus('connected');
+        localStorage.setItem('esp32_autoconnect', 'true');
+        localStorage.setItem('esp32_baud_rate', String(selectedBaud));
         keepReadingRef.current = true;
         isReadingRef.current = true;
         appendLog(`ESP32 Terhubung pada Baud Rate ${selectedBaud} bps. Menunggu sinyal hardware...`, 'sys');
@@ -382,7 +356,48 @@ export const Esp32Provider: React.FC<{ children: React.ReactNode }> = ({ childre
         return false;
       }
     },
-    [baudRate, status, activeLanes, appendLog, sendCommand, parseAndDispatchData]
+    [activeLanes, appendLog, sendCommand, parseAndDispatchData]
+  );
+
+  const connect = useCallback(
+    async (customBaud?: number): Promise<boolean> => {
+      const selectedBaud = customBaud || baudRate;
+
+      if (typeof navigator === 'undefined' || !('serial' in navigator)) {
+        setStatus('unavailable');
+        appendLog('Web Serial API tidak didukung pada browser ini. Harap gunakan Google Chrome atau Edge.', 'err');
+        return false;
+      }
+
+      // If already connected, do not re-request port
+      if (status === 'connected' && portRef.current && portRef.current.readable) {
+        appendLog(`ESP32 sudah dalam keadaan terhubung (${selectedBaud} baud).`, 'sys');
+        return true;
+      }
+
+      try {
+        let port = portRef.current;
+        if (!port) {
+          // Check if port already authorized previously
+          const authorizedPorts = await (navigator as any).serial.getPorts();
+          if (authorizedPorts && authorizedPorts.length > 0) {
+            port = authorizedPorts[0];
+          } else {
+            port = await (navigator as any).serial.requestPort();
+          }
+        }
+
+        return await startPortConnection(port, selectedBaud);
+      } catch (error: any) {
+        console.error('Serial connect error:', error);
+        if (error.name !== 'NotFoundError') {
+          appendLog(`Gagal membuka port serial: ${error.message}`, 'err');
+          setStatus('error');
+        }
+        return false;
+      }
+    },
+    [baudRate, status, appendLog, startPortConnection]
   );
 
   const setBaudRate = useCallback((baud: number) => {
@@ -408,6 +423,54 @@ export const Esp32Provider: React.FC<{ children: React.ReactNode }> = ({ childre
     },
     [sendCommand]
   );
+
+  // Check Web Serial API support & Auto Reconnect on mount
+  useEffect(() => {
+    if (typeof navigator !== 'undefined' && 'serial' in navigator) {
+      setIsSupported(true);
+      setStatus(prev => (prev === 'unavailable' ? 'disconnected' : prev));
+
+      // Check if user previously had an active connection
+      const shouldAutoConnect = localStorage.getItem('esp32_autoconnect') === 'true';
+      if (shouldAutoConnect) {
+        (async () => {
+          try {
+            const ports = await (navigator as any).serial.getPorts();
+            if (ports && ports.length > 0) {
+              appendLog('Mendeteksi port ESP32 yang sebelumnya telah diizinkan. Menyambungkan otomatis...', 'sys');
+              const port = ports[0];
+              portRef.current = port;
+              const savedBaud = Number(localStorage.getItem('esp32_baud_rate')) || 115200;
+              await startPortConnection(port, savedBaud);
+            }
+          } catch (e: any) {
+            console.warn('Auto-reconnect error:', e);
+          }
+        })();
+      }
+
+      // Listen to hardware plug/unplug events
+      const handleSerialConnect = () => {
+        appendLog('Perangkat Serial baru terdeteksi tercolok ke USB.', 'sys');
+      };
+      const handleSerialDisconnect = () => {
+        appendLog('Perangkat ESP32 USB dicabut.', 'err');
+        setStatus('disconnected');
+        portRef.current = null;
+      };
+
+      (navigator as any).serial.addEventListener?.('connect', handleSerialConnect);
+      (navigator as any).serial.addEventListener?.('disconnect', handleSerialDisconnect);
+
+      return () => {
+        (navigator as any).serial.removeEventListener?.('connect', handleSerialConnect);
+        (navigator as any).serial.removeEventListener?.('disconnect', handleSerialDisconnect);
+      };
+    } else {
+      setIsSupported(false);
+      setStatus('unavailable');
+    }
+  }, [appendLog, startPortConnection]);
 
   return (
     <Esp32Context.Provider

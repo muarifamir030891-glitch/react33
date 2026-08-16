@@ -59,6 +59,7 @@ const MedalIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w
 const PrintIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm7-14a2 2 0 10-4 0v4a2 2 0 104 0V3z" /></svg>;
 const LogoutIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>;
 const HistoryIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
+const StopwatchIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 2v2m-4-2h8" /></svg>;
 const HamburgerIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>;
 
 const App: React.FC = () => {
@@ -353,7 +354,23 @@ const App: React.FC = () => {
       />
     );
 
-    if (currentView === View.LIVE_TIMING && selectedEventId) return <LiveTimingView eventId={selectedEventId} onBack={handleBackToEvents} onDataUpdate={refreshData} swimmers={swimmers} competitionInfo={competitionInfo} onStatusChange={handleArduinoStatusChange} />;
+    if (currentView === View.LIVE_TIMING) {
+      const activeOrSelectedId = selectedEventId || activeEventId || (events.length > 0 ? events[0].id : null);
+      if (activeOrSelectedId) {
+        return (
+          <LiveTimingView 
+            eventId={activeOrSelectedId} 
+            onBack={handleBackToEvents} 
+            onDataUpdate={refreshData} 
+            swimmers={swimmers} 
+            competitionInfo={competitionInfo} 
+            onStatusChange={handleArduinoStatusChange} 
+            events={events}
+            onSelectEvent={handleStartTiming}
+          />
+        );
+      }
+    }
     if (currentView === View.RACES && selectedEventId) return <EventDetailView eventId={selectedEventId} onBack={handleBackToEvents} onDataUpdate={refreshData} competitionInfo={competitionInfo} onStartTiming={handleStartTiming} />;
     
     switch (currentView) {
@@ -402,7 +419,20 @@ const App: React.FC = () => {
             <nav className="space-y-2">
                 <NavLink label="Dashboard" icon={<DashboardIcon />} isActive={currentView === View.ADMIN_DASHBOARD} onClick={() => navigateTo(View.ADMIN_DASHBOARD)}/>
                 <NavLink label="Pengaturan Acara" icon={<CogIcon />} isActive={currentView === View.EVENT_SETTINGS} onClick={() => navigateTo(View.EVENT_SETTINGS)}/>
-                <NavLink label="Nomor Lomba" icon={<ClipboardListIcon />} isActive={currentView === View.RACES || currentView === View.LIVE_TIMING} onClick={() => navigateTo(View.RACES)}/>
+                <NavLink label="Nomor Lomba" icon={<ClipboardListIcon />} isActive={currentView === View.RACES && !selectedEventId} onClick={() => { setSelectedEventId(null); navigateTo(View.RACES); }}/>
+                <NavLink 
+                    label="Live Timing (ESP32)" 
+                    icon={<StopwatchIcon />} 
+                    isActive={currentView === View.LIVE_TIMING} 
+                    onClick={() => {
+                        const targetId = selectedEventId || activeEventId || (events.length > 0 ? events[0].id : null);
+                        if (targetId) {
+                            handleStartTiming(targetId);
+                        } else {
+                            navigateTo(View.RACES);
+                        }
+                    }}
+                />
                 <NavLink label="Unggah Peserta" icon={<UploadIcon />} isActive={currentView === View.PARTICIPANTS} onClick={() => navigateTo(View.PARTICIPANTS)}/>
                 <NavLink label="Daftar Atlet" icon={<UsersIcon />} isActive={currentView === View.SWIMMERS_LIST} onClick={() => navigateTo(View.SWIMMERS_LIST)}/>
                 <NavLink label="Log Pendaftaran" icon={<HistoryIcon />} isActive={currentView === View.REGISTRATION_LOGS} onClick={() => navigateTo(View.REGISTRATION_LOGS)}/>

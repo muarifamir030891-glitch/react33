@@ -8,6 +8,7 @@ import { Input } from './ui/Input';
 import { Modal } from './ui/Modal';
 import { formatEventName, generateHeats, reconstructLockedHeats, formatTime, parseMsToTimeParts } from '../constants';
 import { useNotification } from './ui/NotificationManager';
+import { useSerialTiming } from '../contexts/SerialTimingContext';
 
 type ArduinoStatus = 'connected' | 'disconnected' | 'error' | 'unavailable';
 
@@ -17,14 +18,7 @@ interface LiveTimingViewProps {
   onDataUpdate: () => void;
   swimmers: Swimmer[];
   competitionInfo: CompetitionInfo | null;
-  onStatusChange: (status: ArduinoStatus) => void;
-}
-
-interface SerialLogEntry {
-  id: string;
-  timestamp: string;
-  text: string;
-  type: 'tx' | 'rx' | 'sys' | 'err';
+  onStatusChange?: (status: ArduinoStatus) => void;
 }
 
 const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>;
@@ -32,89 +26,69 @@ const PauseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w
 const ResetIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 9a9 9 0 0114.24-4.76L20 5M20 15a9 9 0 01-14.24 4.76L4 19" /></svg>;
 const UsbIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" /></svg>;
 const TerminalIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>;
-const CogIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
+const CogIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924-1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066 2.573c-.94-1.543.826 3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>;
 
 export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack, onDataUpdate, swimmers, competitionInfo, onStatusChange }) => {
+    const {
+        arduinoStatus,
+        isSerialConnected,
+        selectedBaudRate,
+        setSelectedBaudRate,
+        activeLanesSetting,
+        setActiveLanesSetting,
+        connectSerial,
+        forceResetPort,
+        sendSerialCommand,
+        serialLogs,
+        clearLogs,
+        stopwatchTime,
+        isStopwatchRunning,
+        handleStartStop,
+        handleReset,
+        handleForceEndRace,
+        activeEventId,
+        setActiveEventId,
+        activeHeatIndex,
+        setActiveHeatIndex,
+        activeHeats,
+        setActiveHeats,
+        times,
+        setTimes,
+        dqSwimmers,
+        nsSwimmers,
+        flashingLane,
+        handleTapLane,
+        handleToggleDq,
+        handleToggleNs,
+        handleTimeChange,
+        goToHeat
+    } = useSerialTiming();
+
     const [event, setEvent] = useState<SwimEvent | null>(null);
-    const [heats, setHeats] = useState<Heat[]>([]);
-    const [currentHeatIndex, setCurrentHeatIndex] = useState(0);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
-    const [times, setTimes] = useState<Record<string, { min: string, sec: string, ms: string }>>({});
-    const [dqSwimmers, setDqSwimmers] = useState(new Set<string>());
-    const [nsSwimmers, setNsSwimmers] = useState(new Set<string>());
-    const [flashingLane, setFlashingLane] = useState<string | null>(null);
     const { addNotification } = useNotification();
 
-    // Stopwatch state
-    const [stopwatchTime, setStopwatchTime] = useState(0);
-    const [isStopwatchRunning, setIsStopwatchRunning] = useState(false);
-    const animationFrameId = useRef<number | undefined>(undefined);
-    const startTimeRef = useRef(0);
-    const pausedTimeRef = useRef(0);
-
-    // ESP32 Serial State
-    const [isSerialConnected, setIsSerialConnected] = useState(false);
-    const [selectedBaudRate, setSelectedBaudRate] = useState<number>(115200);
-    const [activeLanesSetting, setActiveLanesSetting] = useState<number>(8);
-    const portRef = useRef<any>(null);
-    const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
-    const isReadingRef = useRef<boolean>(false);
-    const keepReadingRef = useRef<boolean>(false);
-
-    // Serial Terminal Logs
-    const [serialLogs, setSerialLogs] = useState<SerialLogEntry[]>([]);
+    // Serial Terminal Logs UI
     const [isTerminalOpen, setIsTerminalOpen] = useState(false);
     const terminalBottomRef = useRef<HTMLDivElement>(null);
 
     // Pin Remap Modal State
     const [isMapModalOpen, setIsMapModalOpen] = useState(false);
-    const [mapLogicalLane, setMapLogicalLane] = useState<number>(1); // 1-10
-    const [mapPhysicalPin, setMapPhysicalPin] = useState<number>(1); // 1-10
-
-    // Refs for accessing state in serial loop
-    const isStopwatchRunningRef = useRef(isStopwatchRunning);
-    const stopwatchTimeRef = useRef(stopwatchTime);
-    const currentHeatRef = useRef<Heat | null>(null);
-    const heatsRef = useRef<Heat[]>([]);
-    const currentHeatIndexRef = useRef<number>(0);
-    const timesRef = useRef(times);
-    const dqSwimmersRef = useRef(dqSwimmers);
+    const [mapLogicalLane, setMapLogicalLane] = useState<number>(1);
+    const [mapPhysicalPin, setMapPhysicalPin] = useState<number>(1);
 
     useEffect(() => {
-        isStopwatchRunningRef.current = isStopwatchRunning;
-        stopwatchTimeRef.current = stopwatchTime;
-        heatsRef.current = heats;
-        currentHeatIndexRef.current = currentHeatIndex;
-        currentHeatRef.current = heats[currentHeatIndex] || null;
-        timesRef.current = times;
-        dqSwimmersRef.current = dqSwimmers;
-    }, [isStopwatchRunning, stopwatchTime, heats, currentHeatIndex, times, dqSwimmers]);
-
-    const appendLog = useCallback((text: string, type: 'tx' | 'rx' | 'sys' | 'err') => {
-        const timeStr = new Date().toLocaleTimeString('id-ID', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
-        const entry: SerialLogEntry = {
-            id: `${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            timestamp: timeStr,
-            text,
-            type
-        };
-        setSerialLogs(prev => [...prev.slice(-150), entry]); // keep last 150 entries
-    }, []);
+        if (onStatusChange) {
+            onStatusChange(arduinoStatus);
+        }
+    }, [arduinoStatus, onStatusChange]);
 
     useEffect(() => {
         if (isTerminalOpen && terminalBottomRef.current) {
             terminalBottomRef.current.scrollIntoView({ behavior: 'smooth' });
         }
     }, [serialLogs, isTerminalOpen]);
-
-    useEffect(() => {
-        if ("serial" in navigator) {
-            onStatusChange('disconnected');
-        } else {
-            onStatusChange('unavailable');
-        }
-    }, [onStatusChange]);
 
     const fetchAndSetupEvent = useCallback(async () => {
         setIsLoading(true);
@@ -131,460 +105,46 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
             const generated = eventData.lanesLocked
                 ? reconstructLockedHeats(detailedEntries)
                 : generateHeats(detailedEntries, lanes);
-            setHeats(generated);
 
-            const initialTimes: Record<string, { min: string, sec: string, ms: string }> = {};
-            const initialDq = new Set<string>();
-            const initialNs = new Set<string>();
-            detailedEntries.forEach(entry => { 
-                const existingResult = eventData.results.find(r => r.swimmerId === entry.swimmerId);
-                if (existingResult) {
-                    if (existingResult.time === -1) {
-                        initialDq.add(entry.swimmerId);
-                        initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
-                    } else if (existingResult.time === -2) {
-                        initialNs.add(entry.swimmerId);
-                        initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
-                    } else if (existingResult.time < 0) {
-                        initialDq.add(entry.swimmerId);
-                        initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
+            // Only override if event changed or heats are empty
+            if (activeEventId !== eventId || activeHeats.length === 0) {
+                setActiveEventId(eventId);
+                setActiveHeats(generated);
+                setActiveHeatIndex(0);
+
+                const initialTimes: Record<string, { min: string, sec: string, ms: string }> = {};
+                const initialDq = new Set<string>();
+                const initialNs = new Set<string>();
+
+                detailedEntries.forEach(entry => { 
+                    const existingResult = eventData.results.find(r => r.swimmerId === entry.swimmerId);
+                    if (existingResult) {
+                        if (existingResult.time === -1) {
+                            initialDq.add(entry.swimmerId);
+                            initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
+                        } else if (existingResult.time === -2) {
+                            initialNs.add(entry.swimmerId);
+                            initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
+                        } else if (existingResult.time < 0) {
+                            initialDq.add(entry.swimmerId);
+                            initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
+                        } else {
+                            initialTimes[entry.swimmerId] = parseMsToTimeParts(existingResult.time);
+                        }
                     } else {
-                        initialTimes[entry.swimmerId] = parseMsToTimeParts(existingResult.time);
+                        initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
                     }
-                } else {
-                    initialTimes[entry.swimmerId] = { min: '0', sec: '0', ms: '000'};
-                }
-            });
-            setTimes(initialTimes);
-            setDqSwimmers(initialDq);
-            setNsSwimmers(initialNs);
+                });
+
+                setTimes(initialTimes);
+            }
         }
         setIsLoading(false);
-    }, [eventId, swimmers, competitionInfo]);
+    }, [eventId, swimmers, competitionInfo, activeEventId, activeHeats.length, setActiveEventId, setActiveHeats, setActiveHeatIndex, setActiveLanesSetting, setTimes]);
     
     useEffect(() => {
         fetchAndSetupEvent();
     }, [fetchAndSetupEvent]);
-    
-    // Stopwatch Runner Effect
-    useEffect(() => {
-        const runStopwatch = (timestamp: number) => {
-            const elapsed = timestamp - startTimeRef.current;
-            setStopwatchTime(pausedTimeRef.current + elapsed);
-            animationFrameId.current = requestAnimationFrame(runStopwatch);
-        };
-    
-        if (isStopwatchRunning) {
-            startTimeRef.current = performance.now();
-            animationFrameId.current = requestAnimationFrame(runStopwatch);
-        } else {
-            if (animationFrameId.current) {
-                cancelAnimationFrame(animationFrameId.current);
-            }
-        }
-    
-        return () => {
-            if (animationFrameId.current) {
-                cancelAnimationFrame(animationFrameId.current);
-            }
-        };
-    }, [isStopwatchRunning]);
-
-    // --- SEND COMMAND HELPER ---
-    const sendSerialCommand = async (command: string) => {
-        if (!portRef.current || !portRef.current.writable) {
-            addNotification("ESP32 belum terhubung via USB.", "error");
-            return;
-        }
-        let writer: any = null;
-        try {
-            const textEncoder = new TextEncoder();
-            writer = portRef.current.writable.getWriter();
-            await writer.write(textEncoder.encode(command + "\n"));
-            appendLog(`TX -> ${command}`, 'tx');
-        } catch (err: any) {
-            console.error("Gagal mengirim data serial ke ESP32:", err);
-            appendLog(`ERR TX [${command}]: ${err.message}`, 'err');
-            addNotification(`Gagal mengirim ke ESP32: ${err.message}`, "error");
-        } finally {
-            if (writer) {
-                try {
-                    writer.releaseLock();
-                } catch (e) {
-                    // Ignore releaseLock if already released
-                }
-            }
-        }
-    };
-
-    // --- SERIAL DISCONNECT LOGIC ---
-    const disconnectSerial = useCallback(async () => {
-        keepReadingRef.current = false;
-        
-        if (readerRef.current) {
-            try {
-                await readerRef.current.cancel();
-            } catch (error) {
-                console.warn("Error cancelling reader:", error);
-            }
-        }
-
-        // Wait slightly for read loop to cleanly release locks
-        let waitCount = 0;
-        while (isReadingRef.current && waitCount < 10) {
-            await new Promise(resolve => setTimeout(resolve, 50));
-            waitCount++;
-        }
-
-        if (portRef.current) {
-            try {
-                if (portRef.current.readable || portRef.current.writable) {
-                    await portRef.current.close();
-                }
-            } catch (error) {
-                console.warn("Error closing port:", error);
-            }
-        }
-
-        setIsSerialConnected(false);
-        appendLog("Sistem Serial ESP32 Terputus.", "sys");
-        addNotification("ESP32 terputus.", "info");
-        onStatusChange('disconnected');
-    }, [addNotification, onStatusChange, appendLog]);
-
-    // --- SERIAL FORCE RESET PORT ---
-    const forceResetPort = async () => {
-        keepReadingRef.current = false;
-        if (readerRef.current) {
-            try {
-                await readerRef.current.cancel();
-            } catch (e) {}
-            try {
-                readerRef.current.releaseLock();
-            } catch (e) {}
-            readerRef.current = null;
-        }
-        if (portRef.current) {
-            try {
-                await portRef.current.close();
-            } catch (e) {}
-            portRef.current = null;
-        }
-        setIsSerialConnected(false);
-        appendLog("Port Serial di-reset & dilepaskan paksa.", "sys");
-        addNotification("Port USB berhasil di-reset. Silakan klik Hubungkan ESP32 kembali.", "info");
-        onStatusChange('disconnected');
-    };
-
-    // --- SERIAL CONNECT LOGIC ---
-    const connectSerial = async () => {
-        if (!("serial" in navigator)) {
-            addNotification("Browser ini tidak mendukung Web Serial API. Silakan gunakan Google Chrome atau Microsoft Edge di Desktop.", "error");
-            onStatusChange('unavailable');
-            return;
-        }
-
-        if (isSerialConnected) {
-            await disconnectSerial();
-            return;
-        }
-
-        try {
-            let port = portRef.current;
-            if (!port) {
-                port = await (navigator as any).serial.requestPort();
-                portRef.current = port;
-            }
-
-            // Check if port is already open or needs open()
-            const isAlreadyOpen = Boolean(port.readable || port.writable);
-            if (!isAlreadyOpen) {
-                try {
-                    await port.open({ baudRate: selectedBaudRate });
-                } catch (openErr: any) {
-                    // Handle "The port is already open" gracefully
-                    if (openErr.name === 'InvalidStateError' || openErr.message?.includes('already open')) {
-                        console.warn("Port is already open in browser, reusing connection.");
-                    } else {
-                        throw openErr;
-                    }
-                }
-            }
-
-            setIsSerialConnected(true);
-            keepReadingRef.current = true;
-            isReadingRef.current = true;
-            appendLog(`ESP32 Terhubung pada Baud Rate ${selectedBaudRate} bps. Menunggu sinyal...`, 'sys');
-            addNotification(`ESP32 terhubung (${selectedBaudRate} baud). Sistem siap!`, "success");
-            onStatusChange('connected');
-
-            // Send initial lane configuration to ESP32
-            setTimeout(() => {
-                sendSerialCommand(`LANES:${activeLanesSetting}`);
-            }, 300);
-
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            while (keepReadingRef.current && portRef.current && portRef.current.readable) {
-                let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
-                try {
-                    reader = portRef.current.readable.getReader();
-                    readerRef.current = reader;
-
-                    while (keepReadingRef.current) {
-                        const { value, done } = await reader.read();
-                        if (done) {
-                            break;
-                        }
-                        if (value) {
-                            buffer += decoder.decode(value, { stream: true });
-                            const lines = buffer.split("\n");
-                            buffer = lines.pop() || ""; // Keep incomplete chunk in buffer
-
-                            for (const line of lines) {
-                                const cleanLine = line.trim();
-                                if (cleanLine.length > 0) {
-                                    appendLog(`RX <- ${cleanLine}`, 'rx');
-                                    processSerialData(cleanLine);
-                                }
-                            }
-                        }
-                    }
-                } catch (readErr: any) {
-                    if (keepReadingRef.current) {
-                        console.warn("Serial read error:", readErr);
-                    }
-                    break;
-                } finally {
-                    if (reader) {
-                        try {
-                            reader.releaseLock();
-                        } catch (e) {
-                            // Ignored
-                        }
-                    }
-                    readerRef.current = null;
-                }
-            }
-        } catch (error: any) {
-            console.error("Serial connection error:", error);
-            if (error.name !== 'NotFoundError') {
-                appendLog(`ERR: ${error.message}`, 'err');
-                addNotification(`Gagal terhubung ke ESP32: ${error.message}`, "error");
-                onStatusChange('error');
-            }
-            setIsSerialConnected(false);
-        } finally {
-            isReadingRef.current = false;
-        }
-    };
-
-    // --- PROCESS DATA FROM ESP32 ---
-    const processSerialData = (data: string) => {
-        const trimmed = data.trim();
-
-        // 1. Start Signal ("S" or "GO")
-        if (trimmed === "S" || trimmed === "GO" || trimmed.startsWith("GO")) {
-            setStopwatchTime(0);
-            pausedTimeRef.current = 0;
-            startTimeRef.current = performance.now();
-            setIsStopwatchRunning(true);
-            addNotification("🚦 Sinyal Start (GO) diterima dari ESP32!", "success", 2500);
-            return;
-        }
-
-        // 2. Reset Signal ("R" or "READY" or "R_ACK")
-        if (trimmed === "R" || trimmed === "READY" || trimmed === "R_ACK") {
-            setIsStopwatchRunning(false);
-            setStopwatchTime(0);
-            pausedTimeRef.current = 0;
-            startTimeRef.current = 0;
-            if (trimmed !== "R_ACK") {
-                addNotification("🔄 Sistem Reset diterima dari ESP32.", "info", 2000);
-            }
-            return;
-        }
-
-        // 3. Lane Finish Signal: "LANE:<laneNumber>:<timeMs>"
-        // Contoh: "LANE:1:25430"
-        if (trimmed.startsWith("LANE:")) {
-            const parts = trimmed.split(":");
-            if (parts.length >= 3) {
-                const laneNumber = parseInt(parts[1], 10);
-                const timeMs = parseInt(parts[2], 10);
-
-                if (!isNaN(laneNumber) && !isNaN(timeMs)) {
-                    const currentHeat = currentHeatRef.current;
-                    if (currentHeat) {
-                        const assignment = currentHeat.assignments.find(a => a.lane === laneNumber);
-                        if (assignment) {
-                            const swimmerId = assignment.entry.swimmer.id;
-                            const timeParts = parseMsToTimeParts(timeMs);
-                            
-                            setTimes(prev => ({
-                                ...prev,
-                                [swimmerId]: timeParts
-                            }));
-
-                            setFlashingLane(swimmerId);
-                            setTimeout(() => setFlashingLane(null), 2000);
-
-                            addNotification(
-                                `🏁 Lintasan ${laneNumber} (${assignment.entry.swimmer.name}) Touchpad: ${formatTime(timeMs)}`,
-                                "success",
-                                4000
-                            );
-                        }
-                    }
-                }
-            }
-            return;
-        }
-
-        // 4. Heartbeat Time: "TIME:<timeMs>"
-        if (trimmed.startsWith("TIME:")) {
-            // Heartbeat can verify synchronization
-            return;
-        }
-
-        // 5. Disqualification confirmation: "DQ_OK:<lane>"
-        if (trimmed.startsWith("DQ_OK:")) {
-            const laneNum = parseInt(trimmed.substring(6), 10);
-            const currentHeat = currentHeatRef.current;
-            if (currentHeat) {
-                const ass = currentHeat.assignments.find(a => a.lane === laneNum);
-                if (ass) {
-                    setDqSwimmers(prev => new Set(prev).add(ass.entry.swimmer.id));
-                }
-            }
-            addNotification(`⚠️ Lintasan ${laneNum} resmi didiskualifikasi (DQ) pada ESP32.`, "warning", 3000);
-            return;
-        }
-
-        // 6. Race completed / closed: "RACE_COMPLETE", "END_ACK", "RACE_TIMEOUT"
-        if (trimmed === "RACE_COMPLETE" || trimmed === "END_ACK" || trimmed === "RACE_TIMEOUT") {
-            setIsStopwatchRunning(false);
-            if (trimmed === "RACE_TIMEOUT") {
-                addNotification("⏱️ Race Auto-Timeout (10 Menit) tercapai di ESP32.", "warning", 4000);
-            } else {
-                addNotification("🏁 Perlombaan seri ini telah selesai di ESP32. Silakan simpan hasil!", "info", 4000);
-            }
-            return;
-        }
-
-        // 7. Active lanes set response: "SET_LANES_OK:<lanes>"
-        if (trimmed.startsWith("SET_LANES_OK:")) {
-            const count = parseInt(trimmed.substring(13), 10);
-            setActiveLanesSetting(count);
-            addNotification(`Konfigurasi ${count} Lintasan Aktif dikonfirmasi ESP32.`, "info", 2000);
-            return;
-        }
-
-        // 8. Port Mapping response: "MAP_OK:<logical>:<physical>"
-        if (trimmed.startsWith("MAP_OK:")) {
-            const parts = trimmed.split(":");
-            const logicalLane = parseInt(parts[1], 10) + 1;
-            const physicalPin = parseInt(parts[2], 10) + 1;
-            addNotification(`🔀 Mapping Tombol Berhasil: Lintasan ${logicalLane} diarahkan ke Tombol Fisik ${physicalPin}.`, "success", 4000);
-            setIsMapModalOpen(false);
-            return;
-        }
-
-        // 9. Error handling from ESP32
-        if (trimmed.startsWith("MAP_ERR:")) {
-            addNotification(`Gagal Mapping Port ESP32: ${trimmed}`, "error");
-            return;
-        }
-        if (trimmed.startsWith("DQ_ERR:")) {
-            addNotification(`Gagal DQ pada ESP32: ${trimmed}`, "error");
-            return;
-        }
-
-        // 10. Backward compatibility with single digit lane finish: "1" to "10"
-        const singleLane = parseInt(trimmed, 10);
-        if (!isNaN(singleLane) && singleLane > 0 && singleLane <= 10) {
-            const currentHeat = currentHeatRef.current;
-            if (currentHeat) {
-                const assignment = currentHeat.assignments.find(a => a.lane === singleLane);
-                if (assignment) {
-                    handleTapLane(assignment.entry.swimmer.id);
-                }
-            }
-        }
-    };
-
-    // Cleanup serial on unmount
-    useEffect(() => {
-        return () => {
-            disconnectSerial();
-        };
-    }, [disconnectSerial]);
-
-    const handleStartStop = useCallback(() => {
-        if (isStopwatchRunningRef.current) {
-            if (animationFrameId.current) {
-                cancelAnimationFrame(animationFrameId.current);
-                animationFrameId.current = undefined;
-            }
-            pausedTimeRef.current = stopwatchTimeRef.current;
-            setIsStopwatchRunning(false);
-            isStopwatchRunningRef.current = false;
-        } else {
-            // Trigger start in web app & send start to ESP32 if connected
-            if (isSerialConnected) {
-                sendSerialCommand("S");
-            }
-            startTimeRef.current = performance.now();
-            setIsStopwatchRunning(true);
-            isStopwatchRunningRef.current = true;
-        }
-    }, [isSerialConnected]);
-
-    const handleReset = useCallback((clearHeatTimes: boolean = false) => {
-        // 1. Cancel animation frame directly and synchronously
-        if (animationFrameId.current) {
-            cancelAnimationFrame(animationFrameId.current);
-            animationFrameId.current = undefined;
-        }
-
-        // 2. Reset stopwatch refs and states synchronously
-        setIsStopwatchRunning(false);
-        isStopwatchRunningRef.current = false;
-        setStopwatchTime(0);
-        stopwatchTimeRef.current = 0;
-        pausedTimeRef.current = 0;
-        startTimeRef.current = 0;
-
-        // 3. Clear times for the current heat so lanes are ready for a new race
-        const curHeat = currentHeatRef.current;
-        if (curHeat) {
-            setTimes(prev => {
-                const updated = { ...prev };
-                curHeat.assignments.forEach(({ entry }) => {
-                    updated[entry.swimmer.id] = { min: '0', sec: '0', ms: '000' };
-                });
-                return updated;
-            });
-            setDqSwimmers(prev => {
-                const updated = new Set(prev);
-                curHeat.assignments.forEach(({ entry }) => updated.delete(entry.swimmer.id));
-                return updated;
-            });
-            setNsSwimmers(prev => {
-                const updated = new Set(prev);
-                curHeat.assignments.forEach(({ entry }) => updated.delete(entry.swimmer.id));
-                return updated;
-            });
-        }
-
-        // 4. Send "R" to ESP32 if connected
-        if (isSerialConnected) {
-            sendSerialCommand("R");
-        }
-
-        addNotification("🔄 Stopwatch dan catatan waktu seri berhasil di-reset.", "info", 2000);
-    }, [isSerialConnected, addNotification]);
 
     // Keyboard Shortcuts (R for reset, S/Space for start-pause)
     useEffect(() => {
@@ -609,15 +169,6 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
         };
     }, [handleStartStop, handleReset]);
 
-    const handleForceEndRace = () => {
-        if (isSerialConnected) {
-            sendSerialCommand("END");
-        } else {
-            setIsStopwatchRunning(false);
-        }
-        addNotification("Perintah penutupan lomba (END) dikirim.", "info");
-    };
-
     const handleSetLanes = (count: number) => {
         setActiveLanesSetting(count);
         if (isSerialConnected) {
@@ -626,7 +177,6 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
     };
 
     const handleSendPinMap = () => {
-        // ESP32 uses 0-based indices for logical and physical pins
         const logicalIndex = mapLogicalLane - 1;
         const physicalIndex = mapPhysicalPin - 1;
         if (isSerialConnected) {
@@ -635,72 +185,9 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
             addNotification("ESP32 belum terhubung via USB.", "error");
         }
     };
-    
-    const handleTapLane = (swimmerId: string) => {
-        // Capture time immediately
-        const captureTime = isStopwatchRunningRef.current 
-            ? (performance.now() - startTimeRef.current + pausedTimeRef.current) 
-            : stopwatchTimeRef.current;
 
-        if (captureTime > 0) {
-             setTimes(prev => {
-                 const existing = prev[swimmerId];
-                 const existingMs = (parseInt(existing?.min || '0') * 60000) + (parseInt(existing?.sec || '0') * 1000) + parseInt(existing?.ms || '0');
-                 
-                 if (existingMs > 0) return prev; // Already finished
-
-                 return {
-                    ...prev,
-                    [swimmerId]: parseMsToTimeParts(captureTime)
-                };
-            });
-        }
-        
-        setFlashingLane(swimmerId);
-        setTimeout(() => setFlashingLane(null), 1500);
-    };
-
-    const handleTimeChange = (swimmerId: string, part: 'min' | 'sec' | 'ms', value: string) => {
-        setTimes(prev => ({
-            ...prev,
-            [swimmerId]: { ...prev[swimmerId], [part]: value }
-        }));
-    };
-    
-    const handleToggleDq = (swimmerId: string, laneNumber: number) => {
-        const newDqSwimmers = new Set(dqSwimmers);
-        const newNsSwimmers = new Set(nsSwimmers);
-
-        if (newDqSwimmers.has(swimmerId)) {
-            newDqSwimmers.delete(swimmerId);
-        } else {
-            newDqSwimmers.add(swimmerId);
-            newNsSwimmers.delete(swimmerId);
-            // Send DQ command to ESP32 if running
-            if (isSerialConnected) {
-                sendSerialCommand(`DQ:${laneNumber}`);
-            }
-        }
-        setDqSwimmers(newDqSwimmers);
-        setNsSwimmers(newNsSwimmers);
-    };
-    
-    const handleToggleNs = (swimmerId: string) => {
-        const newNsSwimmers = new Set(nsSwimmers);
-        const newDqSwimmers = new Set(dqSwimmers);
-        
-        if (newNsSwimmers.has(swimmerId)) {
-            newNsSwimmers.delete(swimmerId);
-        } else {
-            newNsSwimmers.add(swimmerId);
-            newDqSwimmers.delete(swimmerId);
-        }
-        setNsSwimmers(newNsSwimmers);
-        setDqSwimmers(newDqSwimmers);
-    };
-
-    const handleSaveResults = async () => {
-        const currentHeat = heats[currentHeatIndex];
+    const handleSaveResults = async (autoAdvance: boolean = false) => {
+        const currentHeat = activeHeats[activeHeatIndex];
         if (!currentHeat) return;
         
         setIsSaving(true);
@@ -711,7 +198,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                     if (dqSwimmers.has(a.entry.swimmerId)) {
                         return { swimmerId: a.entry.swimmerId, time: -1 };
                     }
-                     if (nsSwimmers.has(a.entry.swimmerId)) {
+                    if (nsSwimmers.has(a.entry.swimmerId)) {
                         return { swimmerId: a.entry.swimmerId, time: -2 };
                     }
                     if (!time) return { swimmerId: a.entry.swimmerId, time: -2 };
@@ -724,9 +211,14 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 });
             
             await addOrUpdateEventResults(eventId, resultsToSave);
-            addNotification(`Hasil untuk Seri ${currentHeat.heatNumber} berhasil disimpan.`, 'info');
+            addNotification(`Hasil Seri ${currentHeat.heatNumber} berhasil disimpan.`, 'success');
             onDataUpdate();
             await fetchAndSetupEvent();
+
+            // If requested to proceed to next heat
+            if (autoAdvance && activeHeatIndex < activeHeats.length - 1) {
+                goToHeat(activeHeatIndex + 1);
+            }
         } catch (error: any) {
             addNotification(`Gagal menyimpan hasil: ${error.message}`, 'error');
         } finally {
@@ -744,7 +236,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
     if (isLoading) return <div className="flex justify-center mt-8"><Spinner /></div>;
     if (!event) return <p>Nomor lomba tidak ditemukan.</p>;
     
-    const currentHeat = heats[currentHeatIndex];
+    const currentHeat = activeHeats[activeHeatIndex];
 
     return (
         <div className="space-y-6">
@@ -819,7 +311,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                             </div>
                             <p className="text-xs text-text-secondary">
                                 {isSerialConnected 
-                                    ? 'Menerima sinyal touch finish (LANE:X:timeMs), Start (S), Reset (R), dan DQ (DQ:X).'
+                                    ? 'Menerima sinyal touch finish (LANE:X:timeMs), Start (S), Reset (R), dan DQ (DQ:X). Koneksi tetap aktif walau Anda membuka menu lain.'
                                     : 'Sambungkan kabel USB ESP32 ke laptop/PC dan klik tombol "Hubungkan ESP32" di atas.'}
                             </p>
                         </div>
@@ -879,7 +371,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                         </div>
                         <div className="flex items-center gap-2">
                             <button 
-                                onClick={() => setSerialLogs([])}
+                                onClick={clearLogs}
                                 className="text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded bg-slate-800 text-[10px]"
                             >
                                 Bersihkan Log
@@ -929,7 +421,7 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                         </Button>
                         
                         <Button 
-                            onClick={handleReset} 
+                            onClick={() => handleReset(true)} 
                             variant="secondary" 
                             className="px-6 py-3 text-lg flex items-center gap-2"
                         >
@@ -940,20 +432,20 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
 
                     <p className="text-xs text-text-secondary mt-3">
                         {isSerialConnected 
-                            ? '💡 Stopwatch otomatis tersinkronisasi saat tombol Start fisik (GPIO 4) ditekan pada hardware ESP32.'
+                            ? '💡 Stopwatch otomatis tersinkronisasi saat tombol Start fisik (GPIO 4) ditekan pada hardware ESP32. Koneksi tetap menyala meskipun Anda berpindah menu.'
                             : '💡 Mode Stopwatch Manual aktif. Hubungkan ESP32 untuk pengoperasian sensor otomatis.'}
                     </p>
                 </div>
             </Card>
 
             {/* Heats Navigation & Active Lane Controller */}
-            {heats.length > 0 && currentHeat ? (
+            {activeHeats.length > 0 && currentHeat ? (
                 <>
                 <Card className="p-4">
                     <div className="flex justify-between items-center">
                         <Button 
-                            onClick={() => setCurrentHeatIndex(p => p - 1)} 
-                            disabled={currentHeatIndex === 0}
+                            onClick={() => goToHeat(activeHeatIndex - 1)} 
+                            disabled={activeHeatIndex === 0}
                             variant="secondary"
                             size="sm"
                         >
@@ -961,13 +453,13 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                         </Button>
                         
                         <div className="text-center">
-                            <h2 className="text-xl md:text-2xl font-bold">Seri {currentHeat.heatNumber} dari {heats.length}</h2>
+                            <h2 className="text-xl md:text-2xl font-bold">Seri {currentHeat.heatNumber} dari {activeHeats.length}</h2>
                             <p className="text-xs text-text-secondary font-mono">{currentHeat.assignments.length} Perenang Terjadwal</p>
                         </div>
 
                         <Button 
-                            onClick={() => setCurrentHeatIndex(p => p + 1)} 
-                            disabled={currentHeatIndex === heats.length - 1}
+                            onClick={() => goToHeat(activeHeatIndex + 1)} 
+                            disabled={activeHeatIndex === activeHeats.length - 1}
                             variant="secondary"
                             size="sm"
                         >
@@ -1112,12 +604,29 @@ export const LiveTimingView: React.FC<LiveTimingViewProps> = ({ eventId, onBack,
                 {/* Save Results Button */}
                 <div className="mt-8 pt-4 border-t border-border flex flex-col sm:flex-row justify-between items-center gap-4">
                     <p className="text-xs text-text-secondary">
-                        Simpan catatan waktu seri ini ke basis data sebelum berpindah ke seri berikutnya.
+                        Simpan catatan waktu seri ini ke basis data. Memilih lanjut ke seri berikutnya akan otomatis mereset timer ke 00:00.00.
                     </p>
 
-                    <Button onClick={handleSaveResults} disabled={isSaving} className="w-full sm:w-auto px-8 py-3 text-base font-bold">
-                        {isSaving ? <Spinner /> : 'Simpan Hasil Seri Ini'}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                        <Button 
+                            onClick={() => handleSaveResults(false)} 
+                            disabled={isSaving} 
+                            variant="secondary"
+                            className="w-full sm:w-auto px-5 py-3 text-sm font-bold"
+                        >
+                            {isSaving ? <Spinner /> : 'Simpan Hasil Seri Ini'}
+                        </Button>
+
+                        {activeHeatIndex < activeHeats.length - 1 && (
+                            <Button 
+                                onClick={() => handleSaveResults(true)} 
+                                disabled={isSaving} 
+                                className="w-full sm:w-auto px-6 py-3 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow"
+                            >
+                                {isSaving ? <Spinner /> : `Simpan & Lanjut ke Seri ${activeHeats[activeHeatIndex + 1]?.heatNumber || (activeHeatIndex + 2)} (Reset Timer) ➔`}
+                            </Button>
+                        )}
+                    </div>
                 </div>
                 </>
             ) : (
